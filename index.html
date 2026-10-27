@@ -115,12 +115,32 @@
   .btn.saida { background: var(--out); color: var(--out-ink); }
   .btn:disabled { opacity: .55; cursor: progress; }
 
-  /* Histórico */
-  .hist { margin-top: 2rem; }
-  .hist h2 { font-size: 1rem; margin: 0 0 .5rem; }
-  .hist ul { list-style: none; margin: 0; padding: 0; }
-  .hist li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--line); font-size: .95rem; }
-  .hist li span:last-child { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* Abas */
+  .abas { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; background: var(--line); padding: .25rem; border-radius: 12px; margin-bottom: 1.25rem; }
+  .abas button { font: inherit; font-size: .95rem; font-weight: 600; border: 0; border-radius: 9px; padding: .7rem .5rem; background: transparent; color: var(--muted); cursor: pointer; }
+  .abas button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .1); }
+
+  /* Meus registros */
+  .hist-topo { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .75rem; }
+  .hist-topo p { font-size: .9rem; }
+  .cards { display: grid; gap: .75rem; }
+  .card { background: var(--card); border-left: 6px solid var(--in); border-radius: 4px 14px 14px 4px; padding: .95rem 1.05rem; }
+  .card.aberto { border-left-color: var(--out); }
+  .card-topo { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; }
+  .card-topo strong { font-size: 1.05rem; overflow-wrap: anywhere; }
+  .selo { font-size: .8rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .card .quando { color: var(--muted); font-size: .95rem; font-variant-numeric: tabular-nums; margin-top: .1rem; }
+  .card dl { margin: .7rem 0 0; display: grid; gap: .2rem; font-size: .95rem; }
+  .card dt { font-size: .8rem; font-weight: 600; color: var(--muted); margin-top: .35rem; }
+  .card dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .card .editar { margin-top: .8rem; display: grid; gap: .6rem; }
+  .card .botoes { display: flex; justify-content: flex-end; gap: .5rem; }
+  .card > .btn-peq { margin-top: .8rem; }
+  .btn-peq { font: inherit; font-size: .95rem; font-weight: 600; border: 1.5px solid var(--line); border-radius: 10px; padding: .6rem 1rem; background: transparent; color: var(--ink); cursor: pointer; }
+  .btn-peq.primario { background: var(--in); border-color: var(--in); color: var(--in-ink); }
+  .btn-peq:disabled { opacity: .55; }
+  .vazio { text-align: center; color: var(--muted); padding: 2.5rem 1rem; }
+  #msgHist { margin: 0 0 .75rem; }
 
   /* Login */
   #login { padding-top: 12vh; }
@@ -162,6 +182,13 @@
     <button class="link" id="btnSair" type="button">Trocar usuário</button>
   </div>
 
+  <nav class="abas" role="tablist" aria-label="Seções">
+    <button type="button" role="tab" data-aba="registrar" aria-selected="true">Registrar</button>
+    <button type="button" role="tab" data-aba="historico" aria-selected="false">Meus registros</button>
+  </nav>
+
+  <section id="abaRegistrar">
+
   <section class="estado" id="estado" aria-live="polite">
     <h1 id="estadoTitulo">Nenhum check-in aberto</h1>
     <p class="muted" id="estadoDetalhe">Preencha os dados e faça o check-in ao chegar.</p>
@@ -182,9 +209,15 @@
 
   <div id="msgApp" class="msg hidden" role="alert"></div>
 
-  <section class="hist" id="hist">
-    <h2>Últimos registros neste celular</h2>
-    <ul id="histLista"></ul>
+  </section>
+
+  <section id="abaHistorico" class="hidden" aria-live="polite">
+    <div class="hist-topo">
+      <p class="muted" id="histInfo"></p>
+      <button class="btn-peq" id="btnAtualizar" type="button">Atualizar</button>
+    </div>
+    <div id="msgHist" class="msg aviso hidden"></div>
+    <div class="cards" id="cards"></div>
   </section>
 </main>
 
@@ -198,16 +231,19 @@
    ========================================================= */
 const API_URL = 'https://script.google.com/macros/s/AKfycbyi0TwquWTikeXPNC8-9mxAJ1Xla22tHOUmujckcBHpk1ngVYbol1C9GV1aUEUeqqJ-/exec';
 
-// "nome" precisa ser igual ao cabeçalho da coluna na aba Registros.
+// "nome" = cabeçalho da coluna na aba Registros. "Observacao" vai para a coluna Observacoes.
+// tipo: text | number | dinheiro | textarea
 const CAMPOS = {
   checkin: [
-    { nome: 'Cliente',     rotulo: 'Cliente ou local', tipo: 'text', obrigatorio: true },
-    { nome: 'KM_Inicial',  rotulo: 'KM do painel', dica: 'opcional', tipo: 'number' },
-    { nome: 'Obs_Checkin', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
+    { nome: 'Cliente',    rotulo: 'Cliente ou local', tipo: 'text', obrigatorio: true },
+    { nome: 'KM_Inicial', rotulo: 'KM do painel na saída', dica: 'opcional', tipo: 'number' },
+    { nome: 'Observacao', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
   ],
   checkout: [
-    { nome: 'KM_Final',     rotulo: 'KM do painel', dica: 'opcional', tipo: 'number' },
-    { nome: 'Obs_Checkout', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
+    { nome: 'KM_Real',        rotulo: 'KM real', dica: 'opcional', tipo: 'number' },
+    { nome: 'Pedagio',        rotulo: 'Pedágio (R$)', dica: 'opcional', tipo: 'dinheiro' },
+    { nome: 'Estacionamento', rotulo: 'Estacionamento (R$)', dica: 'opcional', tipo: 'dinheiro' },
+    { nome: 'Observacao',     rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
   ],
 };
 
@@ -226,7 +262,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
   del(k) { try { localStorage.removeItem(k); } catch {} },
 };
-// sessao: {nome, pin} | aberto: {id, hora, cliente, kmInicial} | fila: [payload] | hist: [{tipo, texto, hora, situacao}]
+// sessao: {nome, pin} | aberto: {id, hora, cliente, kmInicial} | fila: [payload] | histCache: {quando, dias, itens}
 
 const $ = id => document.getElementById(id);
 const fmtHora = iso => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -342,6 +378,7 @@ let enviando = false;
 async function enviarFila() {
   if (enviando) return;
   enviando = true;
+  let enviouAlgo = false;
   try {
     let fila = store.get('fila', []);
     while (fila.length) {
@@ -355,7 +392,7 @@ async function enviarFila() {
         break;
       }
       fila.shift(); store.set('fila', fila);
-      marcarHist(item.dados.id, resp.ok ? 'enviado' : 'recusado');
+      enviouAlgo = true;
       if (!resp.ok) {
         mostrarMsg('erro', 'A planilha recusou um registro: ' + resp.erro);
         if (resp.aberto) { store.set('aberto', resp.aberto); render(); }
@@ -364,6 +401,7 @@ async function enviarFila() {
   } finally {
     enviando = false;
     pintarSync();
+    if (abaAtual === 'historico') { if (enviouAlgo && !store.get('fila', []).length) carregarHistorico(); else pintarHistorico(); }
   }
 }
 
@@ -384,30 +422,125 @@ function pintarSync() {
 }
 
 /* =========================================================
-   Histórico local
+   Meus registros — lista vinda da planilha, com cópia guardada no celular
    ========================================================= */
-function addHist(id, texto, hora) {
-  const h = store.get('hist', []);
-  h.unshift({ id, texto, hora, situacao: 'pendente' });
-  store.set('hist', h.slice(0, 15));
-  pintarHist();
+let abaAtual = 'registrar', carregandoHist = false, editando = null;
+
+function el(tag, cls, txt) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt != null) e.textContent = txt;
+  return e;
 }
-function marcarHist(id, situacao) {
-  const h = store.get('hist', []);
-  h.forEach(x => { if (x.id === id) x.situacao = situacao; });
-  store.set('hist', h);
-  pintarHist();
+const fmtData = iso => new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+
+function trocarAba(aba) {
+  abaAtual = aba;
+  document.querySelectorAll('.abas button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.aba === aba)));
+  $('abaRegistrar').classList.toggle('hidden', aba !== 'registrar');
+  $('abaHistorico').classList.toggle('hidden', aba !== 'historico');
+  $('barraAcao').classList.toggle('hidden', aba !== 'registrar' || !store.get('sessao'));
+  window.scrollTo(0, 0);
+  if (aba === 'historico') { pintarHistorico(); carregarHistorico(); }
 }
-function pintarHist() {
-  const h = store.get('hist', []), ul = $('histLista');
-  $('hist').classList.toggle('hidden', !h.length);
-  ul.replaceChildren(...h.map(x => {
-    const li = document.createElement('li');
-    const a = document.createElement('span'); a.textContent = x.texto;
-    const b = document.createElement('span');
-    b.textContent = fmtDiaHora(x.hora) + (x.situacao === 'pendente' ? ', aguardando' : x.situacao === 'recusado' ? ', recusado' : '');
-    li.append(a, b); return li;
-  }));
+
+async function carregarHistorico() {
+  if (carregandoHist) return;
+  if (!navigator.onLine) { pintarHistorico('Sem internet. Mostrando a última lista salva neste celular.'); return; }
+  carregandoHist = true;
+  $('btnAtualizar').disabled = true;
+  pintarHistorico(null, true);
+  try {
+    const r = await chamar('listar');
+    if (r.ok) { store.set('histCache', { quando: new Date().toISOString(), dias: r.dias, itens: r.registros }); pintarHistorico(); }
+    else pintarHistorico(r.erro);
+  } catch {
+    pintarHistorico('Não foi possível atualizar agora. Mostrando a última lista salva.');
+  } finally {
+    carregandoHist = false;
+    $('btnAtualizar').disabled = false;
+  }
+}
+
+function pintarHistorico(aviso, carregando) {
+  const cache = store.get('histCache'), fila = store.get('fila', []);
+  const obsPendente = {};
+  fila.filter(f => f.acao === 'observacao').forEach(f => { (obsPendente[f.dados.idCheckin] ||= []).push(f.dados.texto); });
+  const naoEnviados = fila.filter(f => f.acao !== 'observacao').length;
+
+  const avisos = [];
+  if (aviso) avisos.push(aviso);
+  if (naoEnviados) avisos.push(naoEnviados === 1
+    ? '1 registro ainda não chegou à planilha. Ele aparece aqui depois de enviado.'
+    : `${naoEnviados} registros ainda não chegaram à planilha. Eles aparecem aqui depois de enviados.`);
+  $('msgHist').textContent = avisos.join(' ');
+  $('msgHist').classList.toggle('hidden', !avisos.length);
+
+  $('histInfo').textContent = carregando ? 'Atualizando…'
+    : cache ? `Últimos ${cache.dias} dias. Atualizado às ${fmtHora(cache.quando)}.` : '';
+
+  const lista = $('cards');
+  if (!cache) { lista.replaceChildren(); return; }
+  if (!cache.itens.length) { lista.replaceChildren(el('p', 'vazio', `Nenhum registro nos últimos ${cache.dias} dias.`)); return; }
+  lista.replaceChildren(...cache.itens.map(r => montarCard(r, obsPendente[r.id])));
+}
+
+function montarCard(r, pendente) {
+  const aberto = r.status !== 'Checkout';
+  const card = el('article', 'card' + (aberto ? ' aberto' : ''));
+
+  const topo = el('div', 'card-topo');
+  topo.append(el('strong', null, r.cliente || 'Cliente não informado'), el('span', 'selo', aberto ? 'Em aberto' : 'Concluído'));
+  const quando = fmtData(r.checkinHora) + ', ' + fmtHora(r.checkinHora) + (r.checkoutHora ? ' até ' + fmtHora(r.checkoutHora) : '');
+  card.append(topo, el('p', 'quando', quando));
+
+  const dl = el('dl');
+  const linha = (rotulo, valor) => { if (valor === '' || valor == null) return; dl.append(el('dt', null, rotulo), el('dd', null, String(valor))); };
+  const num = v => (v === '' || v == null ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+  const real = v => (v === '' || v == null ? '' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+  if (r.tempoMin !== '' && r.tempoMin != null) linha('Tempo total', Math.floor(r.tempoMin / 60) + 'h' + String(r.tempoMin % 60).padStart(2, '0'));
+  linha('KM do painel na saída', num(r.kmInicial));
+  linha('KM ideal (calculado)', r.kmIdeal === '' || r.kmIdeal == null ? '' : num(r.kmIdeal) + ' km');
+  linha('KM real', r.kmReal === '' || r.kmReal == null ? '' : num(r.kmReal) + ' km');
+  const gastos = [r.pedagio !== '' && r.pedagio != null ? 'pedágio ' + real(r.pedagio) : '',
+                  r.estacionamento !== '' && r.estacionamento != null ? 'estacionamento ' + real(r.estacionamento) : ''].filter(Boolean);
+  linha('Gastos', gastos.join(', '));
+  let obs = r.observacoes || '';
+  if (pendente && pendente.length) obs = (obs ? obs + '\n' : '') + pendente.map(t => t + ' (aguardando envio)').join('\n');
+  linha('Observações', obs);
+  if (dl.children.length) card.append(dl);
+
+  if (!r.editavel) return card;
+
+  const btn = el('button', 'btn-peq', 'Adicionar observação');
+  btn.type = 'button';
+  const ed = el('div', 'editar hidden');
+  const ta = el('textarea');
+  ta.maxLength = 1000;
+  ta.setAttribute('aria-label', 'Nova observação');
+  ta.placeholder = 'Escreva a observação';
+  const botoes = el('div', 'botoes');
+  const cancelar = el('button', 'btn-peq', 'Cancelar'); cancelar.type = 'button';
+  const salvar = el('button', 'btn-peq primario', 'Salvar'); salvar.type = 'button';
+  botoes.append(cancelar, salvar);
+  ed.append(ta, botoes);
+  card.append(btn, ed);
+
+  const abrir = () => { ed.classList.remove('hidden'); btn.classList.add('hidden'); };
+  const fechar = () => { editando = null; ta.value = ''; ed.classList.add('hidden'); btn.classList.remove('hidden'); };
+  btn.addEventListener('click', () => { editando = { id: r.id, texto: '' }; abrir(); ta.focus(); });
+  ta.addEventListener('input', () => { editando = { id: r.id, texto: ta.value }; });
+  cancelar.addEventListener('click', fechar);
+  salvar.addEventListener('click', () => {
+    const texto = ta.value.trim();
+    if (!texto) { fechar(); return; }
+    editando = null;
+    enfileirar('observacao', { id: novoId(), idCheckin: r.id, texto, hora: new Date().toISOString() });
+    pintarHistorico();
+  });
+  // Mantém o texto que estava sendo digitado se a lista for atualizada no meio
+  if (editando && editando.id === r.id) { ta.value = editando.texto; abrir(); }
+  return card;
 }
 
 /* =========================================================
@@ -421,7 +554,8 @@ function montarFormulario(lista) {
     if (c.dica) { const s = document.createElement('small'); s.textContent = c.dica; label.append(' ', s); }
     const el = document.createElement(c.tipo === 'textarea' ? 'textarea' : 'input');
     el.name = c.nome;
-    if (c.tipo === 'number') { el.type = 'number'; el.inputMode = 'numeric'; el.min = '0'; }
+    if (c.tipo === 'number') { el.type = 'number'; el.inputMode = 'decimal'; el.min = '0'; el.step = 'any'; }
+    else if (c.tipo === 'dinheiro') { el.type = 'text'; el.inputMode = 'decimal'; el.placeholder = '0,00'; }
     else if (c.tipo !== 'textarea') { el.type = 'text'; el.autocapitalize = 'sentences'; }
     if (c.obrigatorio) el.required = true;
     label.append(el);
@@ -433,7 +567,7 @@ function render() {
   const sessao = store.get('sessao');
   $('login').classList.toggle('hidden', !!sessao);
   $('app').classList.toggle('hidden', !sessao);
-  $('barraAcao').classList.toggle('hidden', !sessao);
+  $('barraAcao').classList.toggle('hidden', !sessao || abaAtual !== 'registrar');
   if (!sessao) return;
 
   $('nomeVendedor').textContent = sessao.nome;
@@ -455,7 +589,7 @@ function render() {
     btn.classList.remove('saida');
     montarFormulario(CAMPOS.checkin);
   }
-  pintarSync(); pintarHist();
+  pintarSync();
 }
 
 function mostrarMsg(tipo, texto) {
@@ -470,9 +604,12 @@ function lerCampos(lista) {
     const el = f.elements[c.nome];
     let v = el.value.trim();
     if (c.obrigatorio && !v) { el.focus(); throw new Error('Preencha "' + c.rotulo + '".'); }
-    if (c.tipo === 'number' && v !== '') {
-      v = Number(v.replace(',', '.'));
-      if (!isFinite(v)) { el.focus(); throw new Error('"' + c.rotulo + '" precisa ser um número.'); }
+    if ((c.tipo === 'number' || c.tipo === 'dinheiro') && v !== '') {
+      let t = v.replace(/R\$|\s/g, '');
+      if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.'); // 1.234,56 -> 1234.56
+      v = Number(t);
+      if (!isFinite(v) || v < 0) { el.focus(); throw new Error('"' + c.rotulo + '" precisa ser um número.'); }
+      if (c.tipo === 'dinheiro') v = Math.round(v * 100) / 100;
     }
     out[c.nome] = v;
   }
@@ -490,11 +627,6 @@ async function acaoPrincipal() {
   let campos;
   try { campos = lerCampos(CAMPOS[tipo]); }
   catch (e) { mostrarMsg('aviso', e.message); return; }
-
-  if (tipo === 'checkout' && aberto.kmInicial != null && campos.KM_Final !== '' && campos.KM_Final < aberto.kmInicial) {
-    mostrarMsg('aviso', `KM do painel (${campos.KM_Final}) está menor que o da entrada (${aberto.kmInicial}). Confira o número.`);
-    return;
-  }
 
   btn.disabled = true;
   const textoOriginal = btn.textContent;
@@ -530,12 +662,10 @@ async function acaoPrincipal() {
     const id = novoId();
     enfileirar('checkin', { id, hora, gps, campos });
     store.set('aberto', { id, hora, cliente: campos.Cliente || '', kmInicial: typeof campos.KM_Inicial === 'number' ? campos.KM_Inicial : null });
-    addHist(id, 'Check-in' + (campos.Cliente ? ', ' + campos.Cliente : ''), hora);
   } else {
     const id = novoId();
     enfileirar('checkout', { id, idCheckin: aberto.id, hora, gps, campos });
     store.del('aberto');
-    addHist(id, 'Check-out' + (aberto.cliente ? ', ' + aberto.cliente : ''), hora);
   }
 
   btn.disabled = false;
@@ -583,10 +713,12 @@ $('formLogin').addEventListener('submit', async ev => {
 });
 
 $('btnAcao').addEventListener('click', acaoPrincipal);
+document.querySelectorAll('.abas button').forEach(b => b.addEventListener('click', () => trocarAba(b.dataset.aba)));
+$('btnAtualizar').addEventListener('click', carregarHistorico);
 $('btnSair').addEventListener('click', () => {
   const n = store.get('fila', []).length;
   if (n && !confirm(`Ainda há ${n} registro(s) não enviados. Eles continuam guardados e serão enviados no nome de quem registrou. Trocar mesmo assim?`)) return;
-  esfriarGPS(); store.del('sessao'); store.del('aberto'); store.del('hist');
+  esfriarGPS(); store.del('sessao'); store.del('aberto'); store.del('histCache'); editando = null; trocarAba('registrar');
   render();
 });
 
