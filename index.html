@@ -117,7 +117,7 @@
   .btn:disabled { opacity: .55; cursor: progress; }
 
   /* Abas */
-  .abas { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; background: var(--line); padding: .25rem; border-radius: 12px; margin-bottom: 1.25rem; }
+  .abas { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; background: var(--line); padding: .25rem; border-radius: 12px; margin-bottom: 1.25rem; }
   .abas button { font: inherit; font-size: .95rem; font-weight: 600; border: 0; border-radius: 9px; padding: .7rem .5rem; background: transparent; color: var(--muted); cursor: pointer; }
   .abas button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .1); }
 
@@ -160,6 +160,8 @@
   .btn-peq { font: inherit; font-size: .95rem; font-weight: 600; border: 1.5px solid var(--line); border-radius: 10px; padding: .6rem 1rem; background: transparent; color: var(--ink); cursor: pointer; }
   .btn-peq.primario { background: var(--in); border-color: var(--in); color: var(--in-ink); }
   .btn-peq:disabled { opacity: .55; }
+  .dia { font-size: .95rem; font-weight: 700; color: var(--muted); margin: .9rem 0 .1rem; }
+  .dia:first-child { margin-top: 0; }
   .vazio { text-align: center; color: var(--muted); padding: 2.5rem 1rem; }
   #msgHist { margin: 0 0 .75rem; }
 
@@ -205,7 +207,8 @@
 
   <nav class="abas" role="tablist" aria-label="Seções">
     <button type="button" role="tab" data-aba="registrar" aria-selected="true">Registrar</button>
-    <button type="button" role="tab" data-aba="historico" aria-selected="false">Meus registros</button>
+    <button type="button" role="tab" data-aba="hoje" aria-selected="false">Hoje</button>
+    <button type="button" role="tab" data-aba="historico" aria-selected="false">Histórico</button>
   </nav>
 
   <section id="abaRegistrar">
@@ -478,7 +481,7 @@ async function enviarFila() {
   } finally {
     enviando = false;
     pintarSync();
-    if (abaAtual === 'historico') { if (enviouAlgo && !store.get('fila', []).length) carregarHistorico(); else pintarHistorico(); }
+    if (abaAtual !== 'registrar') { if (enviouAlgo && !store.get('fila', []).length) carregarHistorico(); else pintarHistorico(); }
   }
 }
 
@@ -517,14 +520,17 @@ const fmtReal = v => (vazio(v) ? '' : Number(v).toLocaleString('pt-BR', { style:
 const fmtTempo = m => (vazio(m) ? '' : Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0'));
 const linkMapa = gps => 'https://www.google.com/maps?q=' + encodeURIComponent(String(gps).replace(/\s/g, ''));
 
+// Dia no fuso do celular, para separar "Hoje" do "Histórico".
+const diaLocal = iso => { const d = new Date(iso); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+
 function trocarAba(aba) {
   abaAtual = aba;
   document.querySelectorAll('.abas button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.aba === aba)));
   $('abaRegistrar').classList.toggle('hidden', aba !== 'registrar');
-  $('abaHistorico').classList.toggle('hidden', aba !== 'historico');
+  $('abaHistorico').classList.toggle('hidden', aba === 'registrar');
   $('barraAcao').classList.toggle('hidden', aba !== 'registrar' || !store.get('sessao'));
   window.scrollTo(0, 0);
-  if (aba === 'historico') { pintarHistorico(); carregarHistorico(); }
+  if (aba !== 'registrar') { pintarHistorico(); carregarHistorico(); }
 }
 
 async function carregarHistorico() {
@@ -579,13 +585,37 @@ function pintarHistorico(aviso, carregando) {
     : `${naoEnviados} registros ainda não chegaram à planilha. Eles aparecem aqui depois de enviados.`);
   $('msgHist').textContent = avisos.join(' ');
   $('msgHist').classList.toggle('hidden', !avisos.length);
+  const hoje = abaAtual === 'hoje';
+  const atualizado = cache ? ` Atualizado às ${fmtHora(cache.quando)}.` : '';
   $('histInfo').textContent = carregando ? 'Atualizando…'
-    : cache ? `Últimos ${cache.dias} dias. Atualizado às ${fmtHora(cache.quando)}.` : '';
+    : !cache ? ''
+    : hoje ? `Hoje, ${fmtData(new Date().toISOString())}.` + atualizado
+    : `Dias anteriores (até ${cache.dias} dias).` + atualizado;
 
-  const lista = $('cards'), itens = registrosComPendentes();
-  if (!itens) { lista.replaceChildren(); return; }
-  if (!itens.length) { lista.replaceChildren(el('p', 'vazio', `Nenhum registro nos últimos ${cache.dias} dias.`)); return; }
-  lista.replaceChildren(...itens.map(montarCard));
+  const lista = $('cards'), todos = registrosComPendentes();
+  if (!todos) { lista.replaceChildren(); return; }
+  const chaveHoje = diaLocal(new Date().toISOString());
+  const itens = todos.filter(r => (diaLocal(r.checkinHora) === chaveHoje) === hoje);
+  if (!itens.length) {
+    lista.replaceChildren(el('p', 'vazio', hoje ? 'Nenhum registro hoje ainda.' : `Nenhum registro nos ${cache.dias} dias anteriores.`));
+  } else if (hoje) {
+    lista.replaceChildren(...itens.map(montarCard));
+  } else {
+    // Histórico agrupado por dia, do mais recente para o mais antigo
+    const partes = [];
+    let diaAtual = null;
+    itens.forEach(r => {
+      const d = diaLocal(r.checkinHora);
+      if (d !== diaAtual) {
+        diaAtual = d;
+        const qtd = itens.filter(x => diaLocal(x.checkinHora) === d).length;
+        const titulo = fmtData(r.checkinHora);
+        partes.push(el('h3', 'dia', titulo.charAt(0).toUpperCase() + titulo.slice(1) + (qtd > 1 ? `, ${qtd} registros` : ', 1 registro')));
+      }
+      partes.push(montarCard(r));
+    });
+    lista.replaceChildren(...partes);
+  }
   // Se o detalhe estiver aberto, atualiza o que ele mostra (sem mexer no que está sendo digitado).
   if (detalheAtual) { const novo = itens.find(r => r.id === detalheAtual.id); if (novo) pintarInfoDetalhe(novo); }
 }
