@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F766E">
+<title>Check-in de campo</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #E9EFEE;
+    --card: #FFFFFF;
+    --ink: #17302D;
+    --muted: #586A67;
+    --line: #C9D5D3;
+    --in: #0F766E;
+    --in-ink: #FFFFFF;
+    --out: #B4530A;
+    --out-ink: #FFFFFF;
+    --bom: #15803D;
+    --medio: #CA8A04;
+    --ruim: #B91C1C;
+    --aviso-bg: #FDF3E1;
+    --erro-bg: #FBE7E7;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0E1918;
+      --card: #172624;
+      --ink: #E3EEEC;
+      --muted: #9BB0AC;
+      --line: #2C3F3C;
+      --in: #2BA89B;
+      --in-ink: #06201D;
+      --out: #EB9A45;
+      --out-ink: #2A1503;
+      --bom: #4ADE80;
+      --medio: #FACC15;
+      --ruim: #F87171;
+      --aviso-bg: #33270F;
+      --erro-bg: #3A1717;
+    }
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100vh;
+  }
+  main { max-width: 32rem; margin: 0 auto; padding: 1rem 1rem 8.5rem; }
+  h1 { font-size: 1.6rem; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+
+  /* Topo */
+  .topo { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .25rem 0 1rem; }
+  .quem { font-weight: 600; }
+  .sync { font-size: .85rem; color: var(--muted); display: flex; align-items: center; gap: .4rem; }
+  .sync::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: var(--bom); }
+  .sync.pendente::before { background: var(--medio); }
+  .sync.offline::before { background: var(--ruim); }
+  .link { background: none; border: 0; color: var(--muted); font: inherit; font-size: .9rem; text-decoration: underline; padding: .5rem; margin: -.5rem; cursor: pointer; }
+
+  /* Estado atual: a faixa lateral muda de cor conforme o estado */
+  .estado { background: var(--card); border-left: 6px solid var(--line); border-radius: 4px 14px 14px 4px; padding: 1rem 1.1rem; margin-bottom: 1.25rem; }
+  .estado.aberto { border-left-color: var(--out); }
+  .estado h1 { margin-bottom: .25rem; }
+  .relogio { font-variant-numeric: tabular-nums; }
+
+  /* Formulário */
+  form { display: grid; gap: 1rem; }
+  label { display: grid; gap: .35rem; font-weight: 600; font-size: .95rem; }
+  label small { font-weight: 400; color: var(--muted); }
+  input, textarea {
+    font: inherit; color: var(--ink); background: var(--card);
+    border: 1.5px solid var(--line); border-radius: 10px; padding: .75rem .85rem; width: 100%;
+  }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid var(--in); outline-offset: 2px; }
+
+  /* GPS: o elemento central da tela */
+  .gps { display: flex; align-items: center; gap: 1rem; background: var(--card); border-radius: 14px; padding: .9rem 1rem; margin-top: 1.25rem; }
+  .dial { width: 64px; height: 64px; flex: none; }
+  .dial circle { fill: none; stroke-width: 7; }
+  .dial .trilho { stroke: var(--line); }
+  .dial .valor { stroke: var(--muted); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .4s, stroke .4s; }
+  .gps.lendo .dial .valor { animation: girar 1.2s linear infinite; }
+  @keyframes girar { to { transform: rotate(270deg); } }
+  .gps strong { display: block; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+
+  .msg { border-radius: 10px; padding: .8rem 1rem; margin-top: 1rem; font-size: .95rem; }
+  .msg.aviso { background: var(--aviso-bg); }
+  .msg.erro { background: var(--erro-bg); }
+
+  /* Botão principal fixo embaixo, ao alcance do polegar */
+  .acao {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, var(--bg) 70%, transparent);
+  }
+  .acao button { display: block; width: 100%; max-width: 30rem; margin: 0 auto; }
+  .btn {
+    font: inherit; font-size: 1.15rem; font-weight: 700; border: 0; border-radius: 14px;
+    padding: 1.1rem 1rem; cursor: pointer; background: var(--in); color: var(--in-ink);
+  }
+  .btn.saida { background: var(--out); color: var(--out-ink); }
+  .btn:disabled { opacity: .55; cursor: progress; }
+
+  /* Histórico */
+  .hist { margin-top: 2rem; }
+  .hist h2 { font-size: 1rem; margin: 0 0 .5rem; }
+  .hist ul { list-style: none; margin: 0; padding: 0; }
+  .hist li { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--line); font-size: .95rem; }
+  .hist li span:last-child { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  /* Login */
+  #login { padding-top: 12vh; }
+  #login h1 { font-size: 2rem; margin-bottom: .5rem; }
+  #login form { margin-top: 2rem; }
+  #login .btn { margin-top: .5rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gps.lendo .dial .valor { animation: none; }
+    .dial .valor { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<main id="login" class="hidden">
+  <h1>Check-in de campo</h1>
+  <p class="muted">Entre com seu nome e o PIN que o escritório passou. Você só faz isso uma vez neste celular.</p>
+  <form id="formLogin" novalidate>
+    <label>Nome
+      <input name="nome" autocomplete="username" autocapitalize="words" required>
+    </label>
+    <label>PIN
+      <input name="pin" inputmode="numeric" autocomplete="current-password" type="password" required>
+    </label>
+    <button class="btn" type="submit">Entrar</button>
+    <div id="msgLogin" class="msg erro hidden" role="alert"></div>
+  </form>
+</main>
+
+<!-- APP -->
+<main id="app" class="hidden">
+  <div class="topo">
+    <div>
+      <div class="quem" id="nomeVendedor"></div>
+      <div class="sync" id="sync" aria-live="polite">Tudo enviado</div>
+    </div>
+    <button class="link" id="btnSair" type="button">Trocar usuário</button>
+  </div>
+
+  <section class="estado" id="estado" aria-live="polite">
+    <h1 id="estadoTitulo">Nenhum check-in aberto</h1>
+    <p class="muted" id="estadoDetalhe">Preencha os dados e faça o check-in ao chegar.</p>
+  </section>
+
+  <form id="formDados" novalidate></form>
+
+  <div class="gps" id="gps">
+    <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
+      <circle class="trilho" cx="32" cy="32" r="27"></circle>
+      <circle class="valor" id="dialValor" cx="32" cy="32" r="27" stroke-dasharray="169.6" stroke-dashoffset="169.6"></circle>
+    </svg>
+    <div>
+      <strong id="gpsTitulo">GPS em espera</strong>
+      <span class="muted" id="gpsDetalhe">Ligando o GPS…</span>
+    </div>
+  </div>
+
+  <div id="msgApp" class="msg hidden" role="alert"></div>
+
+  <section class="hist" id="hist">
+    <h2>Últimos registros neste celular</h2>
+    <ul id="histLista"></ul>
+  </section>
+</main>
+
+<div class="acao hidden" id="barraAcao">
+  <button class="btn" id="btnAcao" type="button">Fazer check-in</button>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURAÇÃO — ajuste aqui
+   ========================================================= */
+const API_URL = 'https://script.google.com/macros/s/AKfycbyi0TwquWTikeXPNC8-9mxAJ1Xla22tHOUmujckcBHpk1ngVYbol1C9GV1aUEUeqqJ-/exec';
+
+// "nome" precisa ser igual ao cabeçalho da coluna na aba Registros.
+const CAMPOS = {
+  checkin: [
+    { nome: 'Cliente',     rotulo: 'Cliente ou local', tipo: 'text', obrigatorio: true },
+    { nome: 'KM_Inicial',  rotulo: 'KM do painel', dica: 'opcional', tipo: 'number' },
+    { nome: 'Obs_Checkin', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
+  ],
+  checkout: [
+    { nome: 'KM_Final',     rotulo: 'KM do painel', dica: 'opcional', tipo: 'number' },
+    { nome: 'Obs_Checkout', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
+  ],
+};
+
+const GPS_ALVO_M = 10;         // para de ler quando a precisão chega a isto
+const GPS_BOM_M = 20;          // até aqui: anel verde
+const GPS_MAX_M = 50;          // acima disto o registro é BLOQUEADO
+const GPS_MIN_MS = 5000;       // lê por pelo menos 5 s, mesmo que chegue cedo no alvo
+const GPS_LIMITE_MS = 30000;   // tempo máximo lendo
+const GPS_IDADE_MAX_MS = 5000; // leitura com mais de 5 s de idade é descartada
+
+/* =========================================================
+   Estado local (sobrevive a fechar o app e a ficar sem sinal)
+   ========================================================= */
+const store = {
+  get(k, padrao) { try { const v = localStorage.getItem(k); return v === null ? padrao : JSON.parse(v); } catch { return padrao; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+// sessao: {nome, pin} | aberto: {id, hora, cliente, kmInicial} | fila: [payload] | hist: [{tipo, texto, hora, situacao}]
+
+const $ = id => document.getElementById(id);
+const fmtHora = iso => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const fmtDiaHora = iso => {
+  const d = new Date(iso), hoje = new Date();
+  const mesmoDia = d.toDateString() === hoje.toDateString();
+  return mesmoDia ? fmtHora(iso) : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + fmtHora(iso);
+};
+const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+
+/* =========================================================
+   API
+   ========================================================= */
+async function chamar(acao, extra = {}, cred = store.get('sessao')) {
+  const s = cred;
+  // text/plain evita o preflight CORS, que o Apps Script não responde.
+  const r = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ acao, vendedor: s?.nome, pin: s?.pin, ...extra }),
+    redirect: 'follow',
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+/* =========================================================
+   GPS — máxima precisão
+   1. Aquecimento: com o app aberto, o GPS fica ligado para já estar "quente" no toque.
+   2. No toque, só valem leituras com menos de 5 s de idade (posição antiga de cache é descartada).
+   3. Lê por no mínimo 5 s e guarda a mais precisa; para ao atingir ±10 m ou em 30 s.
+   ========================================================= */
+// Um único "watch" do GPS para o app todo (dois ao mesmo tempo atrapalham alguns aparelhos).
+let watchId = null, ultimaPos = null, ouvinte = null, ouvinteErro = null;
+function ligarGPS() {
+  if (!('geolocation' in navigator) || watchId !== null) return;
+  watchId = navigator.geolocation.watchPosition(
+    p => { ultimaPos = p; if (ouvinte) ouvinte(p); else pintarGPS('aquecido', p.coords.accuracy); },
+    e => { if (ouvinteErro) ouvinteErro(e); },
+    { enableHighAccuracy: true, maximumAge: 0 }
+  );
+}
+function aquecerGPS() { if (store.get('sessao')) ligarGPS(); }
+function esfriarGPS() {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  ultimaPos = null;
+}
+
+function lerGPS(aoAtualizar) {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('Este navegador não oferece localização.'));
+    const t0 = Date.now();
+    let melhor = null, leituras = 0, encerrado = false, timer, timerMin;
+    const fim = () => {
+      if (encerrado) return; encerrado = true;
+      ouvinte = null; ouvinteErro = null; clearTimeout(timer); clearTimeout(timerMin);
+      if (melhor) { melhor.leituras = leituras; resolve(melhor); }
+      else reject(new Error('Sem sinal de GPS. Vá para perto de uma janela ou para fora e tente de novo.'));
+    };
+    const receber = p => {
+      const agora = Date.now();
+      if (agora - p.timestamp > GPS_IDADE_MAX_MS) return;   // posição com mais de 5 s: descarta
+      leituras++;
+      if (!melhor || p.coords.accuracy < melhor.coords.accuracy) { melhor = p; aoAtualizar(p.coords.accuracy); }
+      if (melhor.coords.accuracy <= GPS_ALVO_M && agora - t0 >= GPS_MIN_MS) fim();
+    };
+    ouvinte = receber;
+    ouvinteErro = e => {
+      if (e.code === e.PERMISSION_DENIED && !encerrado) {
+        encerrado = true; ouvinte = null; ouvinteErro = null; clearTimeout(timer); clearTimeout(timerMin);
+        reject(new Error('Localização bloqueada. Libere em Configurações do navegador > Permissões do site > Localização, e marque "Precisa".'));
+      }
+    };
+    ligarGPS();
+    if (ultimaPos) receber(ultimaPos); // leitura do aquecimento, só vale se tiver menos de 5 s
+    timerMin = setTimeout(() => { if (melhor && melhor.coords.accuracy <= GPS_ALVO_M) fim(); }, GPS_MIN_MS + 50);
+    timer = setTimeout(fim, GPS_LIMITE_MS);
+  });
+}
+
+function pintarGPS(estado, precisao) {
+  const gps = $('gps'), valor = $('dialValor'), C = 169.6;
+  gps.classList.toggle('lendo', estado === 'lendo' && precisao == null);
+  if (estado === 'espera') {
+    valor.style.stroke = ''; valor.style.strokeDashoffset = C;
+    $('gpsTitulo').textContent = 'GPS em espera';
+    $('gpsDetalhe').textContent = 'Ligando o GPS…';
+    return;
+  }
+  if (precisao == null) {
+    valor.style.stroke = ''; valor.style.strokeDashoffset = C * 0.75;
+    $('gpsTitulo').textContent = 'Procurando sinal…';
+    $('gpsDetalhe').textContent = 'Mantenha o celular parado por alguns segundos.';
+    return;
+  }
+  // Quanto menor a precisão em metros, mais cheio o anel (10 m = cheio, 100 m+ = quase vazio)
+  const frac = Math.max(0.08, Math.min(1, 1 - (precisao - GPS_ALVO_M) / 90));
+  const cor = precisao <= GPS_BOM_M ? 'var(--bom)' : precisao <= GPS_MAX_M ? 'var(--medio)' : 'var(--ruim)';
+  valor.style.stroke = cor; valor.style.strokeDashoffset = C * (1 - frac);
+  $('gpsTitulo').textContent = '± ' + Math.round(precisao) + ' m';
+  $('gpsDetalhe').textContent =
+      estado === 'lendo' ? 'Melhorando a precisão…'
+    : precisao <= GPS_BOM_M ? 'Localização precisa.'
+    : precisao <= GPS_MAX_M ? 'Localização aceitável.'
+    : estado === 'aquecido' ? 'Sinal fraco. Chegue perto de uma janela.'
+    : 'Sinal fraco demais para registrar.';
+}
+
+/* =========================================================
+   Fila offline — envia na ordem; só remove quando o servidor responde
+   ========================================================= */
+let enviando = false;
+async function enviarFila() {
+  if (enviando) return;
+  enviando = true;
+  try {
+    let fila = store.get('fila', []);
+    while (fila.length) {
+      const item = fila[0];
+      let resp;
+      try { resp = await chamar(item.acao, item.dados, item.cred); }
+      catch { break; } // sem rede: tenta depois
+
+      if (!resp.ok && (resp.temporario || resp.auth === false)) {
+        if (resp.auth === false) mostrarMsg('erro', 'Seu PIN não é mais aceito. Toque em "Trocar usuário" e entre de novo. Os registros continuam guardados.');
+        break;
+      }
+      fila.shift(); store.set('fila', fila);
+      marcarHist(item.dados.id, resp.ok ? 'enviado' : 'recusado');
+      if (!resp.ok) {
+        mostrarMsg('erro', 'A planilha recusou um registro: ' + resp.erro);
+        if (resp.aberto) { store.set('aberto', resp.aberto); render(); }
+      }
+    }
+  } finally {
+    enviando = false;
+    pintarSync();
+  }
+}
+
+function enfileirar(acao, dados) {
+  const fila = store.get('fila', []);
+  fila.push({ acao, dados, cred: store.get('sessao') }); // envia com o usuário que registrou
+  store.set('fila', fila);
+  pintarSync();
+  enviarFila();
+}
+
+function pintarSync() {
+  const n = store.get('fila', []).length, el = $('sync');
+  el.classList.remove('pendente', 'offline');
+  if (!navigator.onLine) { el.classList.add('offline'); el.textContent = n ? `Sem internet, ${n} aguardando` : 'Sem internet'; }
+  else if (n) { el.classList.add('pendente'); el.textContent = n === 1 ? '1 registro enviando' : `${n} registros enviando`; }
+  else el.textContent = 'Tudo enviado';
+}
+
+/* =========================================================
+   Histórico local
+   ========================================================= */
+function addHist(id, texto, hora) {
+  const h = store.get('hist', []);
+  h.unshift({ id, texto, hora, situacao: 'pendente' });
+  store.set('hist', h.slice(0, 15));
+  pintarHist();
+}
+function marcarHist(id, situacao) {
+  const h = store.get('hist', []);
+  h.forEach(x => { if (x.id === id) x.situacao = situacao; });
+  store.set('hist', h);
+  pintarHist();
+}
+function pintarHist() {
+  const h = store.get('hist', []), ul = $('histLista');
+  $('hist').classList.toggle('hidden', !h.length);
+  ul.replaceChildren(...h.map(x => {
+    const li = document.createElement('li');
+    const a = document.createElement('span'); a.textContent = x.texto;
+    const b = document.createElement('span');
+    b.textContent = fmtDiaHora(x.hora) + (x.situacao === 'pendente' ? ', aguardando' : x.situacao === 'recusado' ? ', recusado' : '');
+    li.append(a, b); return li;
+  }));
+}
+
+/* =========================================================
+   Tela
+   ========================================================= */
+function montarFormulario(lista) {
+  const f = $('formDados');
+  f.replaceChildren(...lista.map(c => {
+    const label = document.createElement('label');
+    label.append(c.rotulo);
+    if (c.dica) { const s = document.createElement('small'); s.textContent = c.dica; label.append(' ', s); }
+    const el = document.createElement(c.tipo === 'textarea' ? 'textarea' : 'input');
+    el.name = c.nome;
+    if (c.tipo === 'number') { el.type = 'number'; el.inputMode = 'numeric'; el.min = '0'; }
+    else if (c.tipo !== 'textarea') { el.type = 'text'; el.autocapitalize = 'sentences'; }
+    if (c.obrigatorio) el.required = true;
+    label.append(el);
+    return label;
+  }));
+}
+
+function render() {
+  const sessao = store.get('sessao');
+  $('login').classList.toggle('hidden', !!sessao);
+  $('app').classList.toggle('hidden', !sessao);
+  $('barraAcao').classList.toggle('hidden', !sessao);
+  if (!sessao) return;
+
+  $('nomeVendedor').textContent = sessao.nome;
+  const aberto = store.get('aberto');
+  const est = $('estado'), btn = $('btnAcao');
+  if (aberto) {
+    est.classList.add('aberto');
+    $('estadoTitulo').innerHTML = 'Check-in aberto desde <span class="relogio"></span>';
+    $('estadoTitulo').querySelector('.relogio').textContent = fmtDiaHora(aberto.hora);
+    $('estadoDetalhe').textContent = aberto.cliente || 'Faça o check-out ao terminar.';
+    btn.textContent = 'Fazer check-out';
+    btn.classList.add('saida');
+    montarFormulario(CAMPOS.checkout);
+  } else {
+    est.classList.remove('aberto');
+    $('estadoTitulo').textContent = 'Nenhum check-in aberto';
+    $('estadoDetalhe').textContent = 'Preencha os dados e faça o check-in ao chegar.';
+    btn.textContent = 'Fazer check-in';
+    btn.classList.remove('saida');
+    montarFormulario(CAMPOS.checkin);
+  }
+  pintarSync(); pintarHist();
+}
+
+function mostrarMsg(tipo, texto) {
+  const m = $('msgApp');
+  if (!texto) { m.classList.add('hidden'); return; }
+  m.className = 'msg ' + tipo; m.textContent = texto;
+}
+
+function lerCampos(lista) {
+  const f = $('formDados'), out = {};
+  for (const c of lista) {
+    const el = f.elements[c.nome];
+    let v = el.value.trim();
+    if (c.obrigatorio && !v) { el.focus(); throw new Error('Preencha "' + c.rotulo + '".'); }
+    if (c.tipo === 'number' && v !== '') {
+      v = Number(v.replace(',', '.'));
+      if (!isFinite(v)) { el.focus(); throw new Error('"' + c.rotulo + '" precisa ser um número.'); }
+    }
+    out[c.nome] = v;
+  }
+  return out;
+}
+
+/* =========================================================
+   Ações
+   ========================================================= */
+async function acaoPrincipal() {
+  const btn = $('btnAcao'), aberto = store.get('aberto');
+  const tipo = aberto ? 'checkout' : 'checkin';
+  mostrarMsg();
+
+  let campos;
+  try { campos = lerCampos(CAMPOS[tipo]); }
+  catch (e) { mostrarMsg('aviso', e.message); return; }
+
+  if (tipo === 'checkout' && aberto.kmInicial != null && campos.KM_Final !== '' && campos.KM_Final < aberto.kmInicial) {
+    mostrarMsg('aviso', `KM do painel (${campos.KM_Final}) está menor que o da entrada (${aberto.kmInicial}). Confira o número.`);
+    return;
+  }
+
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Lendo localização…';
+  pintarGPS('lendo');
+
+  let pos;
+  try {
+    pos = await lerGPS(prec => pintarGPS('lendo', prec));
+  } catch (e) {
+    pintarGPS('espera'); mostrarMsg('erro', e.message);
+    btn.disabled = false; btn.textContent = textoOriginal;
+    return;
+  }
+  const prec = pos.coords.accuracy;
+  pintarGPS('pronto', prec);
+  btn.textContent = textoOriginal;
+
+  if (prec > GPS_MAX_M) {
+    mostrarMsg('erro', `Não registrado: a localização ficou em ± ${Math.round(prec)} m e o mínimo é ± ${GPS_MAX_M} m. Vá para perto de uma janela ou para fora e toque de novo.`);
+    btn.disabled = false; btn.textContent = textoOriginal;
+    return;
+  }
+
+  const hora = new Date().toISOString();
+  const gps = {
+    lat: pos.coords.latitude, lng: pos.coords.longitude, precisao: prec,
+    hora: new Date(pos.timestamp).toISOString(),  // momento exato da leitura do GPS
+    leituras: pos.leituras,
+  };
+
+  if (tipo === 'checkin') {
+    const id = novoId();
+    enfileirar('checkin', { id, hora, gps, campos });
+    store.set('aberto', { id, hora, cliente: campos.Cliente || '', kmInicial: typeof campos.KM_Inicial === 'number' ? campos.KM_Inicial : null });
+    addHist(id, 'Check-in' + (campos.Cliente ? ', ' + campos.Cliente : ''), hora);
+  } else {
+    const id = novoId();
+    enfileirar('checkout', { id, idCheckin: aberto.id, hora, gps, campos });
+    store.del('aberto');
+    addHist(id, 'Check-out' + (aberto.cliente ? ', ' + aberto.cliente : ''), hora);
+  }
+
+  btn.disabled = false;
+  render();
+  if (!navigator.onLine) mostrarMsg('aviso', 'Registrado no celular. Vai para a planilha assim que tiver internet.');
+}
+
+async function sincronizarEstado() {
+  // Só confia no servidor quando não há nada local esperando envio.
+  if (!navigator.onLine || store.get('fila', []).length) return;
+  try {
+    const r = await chamar('status');
+    if (r.ok) {
+      const local = store.get('aberto');
+      if (r.aberto) store.set('aberto', { ...r.aberto, kmInicial: local?.id === r.aberto.id ? local.kmInicial : null });
+      else store.del('aberto');
+      render();
+    } else if (r.auth === false) {
+      mostrarMsg('erro', 'Seu PIN não é mais aceito. Toque em "Trocar usuário" e entre de novo.');
+    }
+  } catch {}
+}
+
+$('formLogin').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const f = ev.target, msg = $('msgLogin'), btn = f.querySelector('button');
+  const nome = f.nome.value.trim(), pin = f.pin.value.trim();
+  msg.classList.add('hidden');
+  if (!nome || !pin) { msg.textContent = 'Preencha nome e PIN.'; msg.classList.remove('hidden'); return; }
+  btn.disabled = true; btn.textContent = 'Conferindo…';
+  store.set('sessao', { nome, pin });
+  try {
+    const r = await chamar('login');
+    if (!r.ok) throw new Error(r.erro);
+    store.set('sessao', { nome: r.vendedor, pin });
+    render(); aquecerGPS(); sincronizarEstado();
+  } catch (e) {
+    store.del('sessao');
+    msg.textContent = e.message.startsWith('HTTP') || e.name === 'TypeError'
+      ? 'Não foi possível falar com a planilha. Confira a internet e tente de novo.' : e.message;
+    msg.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+});
+
+$('btnAcao').addEventListener('click', acaoPrincipal);
+$('btnSair').addEventListener('click', () => {
+  const n = store.get('fila', []).length;
+  if (n && !confirm(`Ainda há ${n} registro(s) não enviados. Eles continuam guardados e serão enviados no nome de quem registrou. Trocar mesmo assim?`)) return;
+  esfriarGPS(); store.del('sessao'); store.del('aberto'); store.del('hist');
+  render();
+});
+
+window.addEventListener('online', () => { pintarSync(); enviarFila().then(sincronizarEstado); });
+window.addEventListener('offline', pintarSync);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { esfriarGPS(); return; }
+  aquecerGPS(); enviarFila().then(sincronizarEstado);
+});
+setInterval(() => { if (store.get('fila', []).length) enviarFila(); }, 30000);
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+render();
+if (store.get('sessao')) { aquecerGPS(); enviarFila().then(sincronizarEstado); }
+</script>
+</body>
+</html>
