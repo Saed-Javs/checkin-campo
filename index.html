@@ -85,6 +85,7 @@
     border: 1.5px solid var(--line); border-radius: 10px; padding: .75rem .85rem; width: 100%;
   }
   textarea { min-height: 4.5rem; resize: vertical; }
+  label input, label textarea { font-weight: 400; }
   input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid var(--in); outline-offset: 2px; }
 
   /* GPS: o elemento central da tela */
@@ -133,9 +134,29 @@
   .card dl { margin: .7rem 0 0; display: grid; gap: .2rem; font-size: .95rem; }
   .card dt { font-size: .8rem; font-weight: 600; color: var(--muted); margin-top: .35rem; }
   .card dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .card .editar { margin-top: .8rem; display: grid; gap: .6rem; }
-  .card .botoes { display: flex; justify-content: flex-end; gap: .5rem; }
-  .card > .btn-peq { margin-top: .8rem; }
+  .card.clicavel { cursor: pointer; }
+  .card.clicavel:active { transform: scale(.99); }
+  .card .resumo { font-size: .95rem; margin-top: .45rem; }
+  .card-rodape { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-top: .7rem; }
+  .card-rodape .abrir { font-size: .9rem; font-weight: 600; color: var(--in); white-space: nowrap; }
+  .tag { font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .tag.alerta { color: var(--out); }
+
+  /* Detalhe em tela cheia */
+  dialog#detalhe { border: 0; padding: 0; margin: 0; width: 100%; max-width: 100%; height: 100%; max-height: 100%;
+    background: var(--bg); color: var(--ink); overflow-y: auto; }
+  dialog#detalhe::backdrop { background: rgb(0 0 0 / .4); }
+  .det { max-width: 32rem; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 1rem) 1rem 1rem; display: grid; gap: .25rem; }
+  .det .voltar { justify-self: start; text-decoration: none; font-weight: 600; font-size: 1rem; color: var(--in); margin: 0 0 .75rem; }
+  .det h2 { font-size: 1.5rem; line-height: 1.2; margin: 0; overflow-wrap: anywhere; }
+  .det-info { background: var(--card); border-radius: 14px; padding: .4rem 1rem .9rem; margin: 1rem 0; display: grid; gap: .15rem; }
+  .det-info:empty { display: none; }
+  .det-info dt { font-size: .8rem; font-weight: 600; color: var(--muted); margin-top: .5rem; }
+  .det-info dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .det-info a { color: var(--in); font-weight: 600; }
+  .det-acoes { position: sticky; bottom: 0; padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, var(--bg) 70%, transparent); }
+  .det-acoes .btn { display: block; width: 100%; max-width: 30rem; margin: 0 auto; }
   .btn-peq { font: inherit; font-size: .95rem; font-weight: 600; border: 1.5px solid var(--line); border-radius: 10px; padding: .6rem 1rem; background: transparent; color: var(--ink); cursor: pointer; }
   .btn-peq.primario { background: var(--in); border-color: var(--in); color: var(--in-ink); }
   .btn-peq:disabled { opacity: .55; }
@@ -221,6 +242,21 @@
   </section>
 </main>
 
+<dialog id="detalhe" aria-labelledby="detTitulo">
+  <div class="det">
+    <button class="link voltar" id="detFechar" type="button">‹ Voltar</button>
+    <h2 id="detTitulo"></h2>
+    <p class="muted" id="detQuando"></p>
+    <dl class="det-info" id="detInfo"></dl>
+    <p class="msg aviso hidden" id="detPrazo">O prazo para editar este registro já passou.</p>
+    <form id="detForm" novalidate></form>
+    <div id="detMsg" class="msg hidden" role="alert"></div>
+  </div>
+  <div class="det-acoes">
+    <button class="btn" id="detSalvar" type="button">Salvar</button>
+  </div>
+</dialog>
+
 <div class="acao hidden" id="barraAcao">
   <button class="btn" id="btnAcao" type="button">Fazer check-in</button>
 </div>
@@ -240,12 +276,20 @@ const CAMPOS = {
     { nome: 'Observacao', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
   ],
   checkout: [
-    { nome: 'KM_Real',        rotulo: 'KM real', dica: 'opcional', tipo: 'number' },
+    { nome: 'KM_Real',        rotulo: 'KM real (quanto andou)', dica: 'opcional', tipo: 'number' },
     { nome: 'Pedagio',        rotulo: 'Pedágio (R$)', dica: 'opcional', tipo: 'dinheiro' },
     { nome: 'Estacionamento', rotulo: 'Estacionamento (R$)', dica: 'opcional', tipo: 'dinheiro' },
     { nome: 'Observacao',     rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
   ],
 };
+
+// Campos que o vendedor pode completar depois, abrindo o card em "Meus registros".
+const CAMPOS_EDICAO = [
+  { nome: 'KM_Real',        rotulo: 'KM real (quanto andou)', tipo: 'number' },
+  { nome: 'Pedagio',        rotulo: 'Pedágio (R$)', tipo: 'dinheiro' },
+  { nome: 'Estacionamento', rotulo: 'Estacionamento (R$)', tipo: 'dinheiro' },
+  { nome: 'NovaObs',        rotulo: 'Adicionar observação', tipo: 'textarea' },
+];
 
 const GPS_ALVO_M = 10;         // para de ler quando a precisão chega a isto
 const GPS_BOM_M = 20;          // até aqui: anel verde
@@ -422,9 +466,10 @@ function pintarSync() {
 }
 
 /* =========================================================
-   Meus registros — lista vinda da planilha, com cópia guardada no celular
+   Meus registros — lista vinda da planilha, com cópia guardada no celular.
+   Tocar num card abre o detalhe para completar KM real, gastos e observação.
    ========================================================= */
-let abaAtual = 'registrar', carregandoHist = false, editando = null;
+let abaAtual = 'registrar', carregandoHist = false, detalheAtual = null;
 
 function el(tag, cls, txt) {
   const e = document.createElement(tag);
@@ -433,6 +478,11 @@ function el(tag, cls, txt) {
   return e;
 }
 const fmtData = iso => new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const vazio = v => v === '' || v == null;
+const fmtNum = v => (vazio(v) ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+const fmtReal = v => (vazio(v) ? '' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const fmtTempo = m => (vazio(m) ? '' : Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0'));
+const linkMapa = gps => 'https://www.google.com/maps?q=' + encodeURIComponent(String(gps).replace(/\s/g, ''));
 
 function trocarAba(aba) {
   abaAtual = aba;
@@ -462,12 +512,33 @@ async function carregarHistorico() {
   }
 }
 
+// Junta o que veio da planilha com as alterações que ainda estão na fila do celular.
+function registrosComPendentes() {
+  const cache = store.get('histCache');
+  if (!cache) return null;
+  const fila = store.get('fila', []);
+  const pend = {};
+  fila.forEach(f => {
+    if (f.acao !== 'editar' && f.acao !== 'observacao') return;
+    const p = (pend[f.dados.idCheckin] ||= { campos: {}, textos: [] });
+    Object.assign(p.campos, f.dados.campos || {});
+    if (f.dados.texto) p.textos.push(f.dados.texto);
+  });
+  return cache.itens.map(r => {
+    const p = pend[r.id];
+    if (!p) return r;
+    const c = p.campos, x = { ...r, pendente: true };
+    if ('KM_Real' in c) x.kmReal = c.KM_Real;
+    if ('Pedagio' in c) x.pedagio = c.Pedagio;
+    if ('Estacionamento' in c) x.estacionamento = c.Estacionamento;
+    if (p.textos.length) x.observacoes = (r.observacoes ? r.observacoes + '\n' : '') + p.textos.map(t => t + ' (aguardando envio)').join('\n');
+    return x;
+  });
+}
+
 function pintarHistorico(aviso, carregando) {
   const cache = store.get('histCache'), fila = store.get('fila', []);
-  const obsPendente = {};
-  fila.filter(f => f.acao === 'observacao').forEach(f => { (obsPendente[f.dados.idCheckin] ||= []).push(f.dados.texto); });
-  const naoEnviados = fila.filter(f => f.acao !== 'observacao').length;
-
+  const naoEnviados = fila.filter(f => f.acao === 'checkin' || f.acao === 'checkout').length;
   const avisos = [];
   if (aviso) avisos.push(aviso);
   if (naoEnviados) avisos.push(naoEnviados === 1
@@ -475,79 +546,119 @@ function pintarHistorico(aviso, carregando) {
     : `${naoEnviados} registros ainda não chegaram à planilha. Eles aparecem aqui depois de enviados.`);
   $('msgHist').textContent = avisos.join(' ');
   $('msgHist').classList.toggle('hidden', !avisos.length);
-
   $('histInfo').textContent = carregando ? 'Atualizando…'
     : cache ? `Últimos ${cache.dias} dias. Atualizado às ${fmtHora(cache.quando)}.` : '';
 
-  const lista = $('cards');
-  if (!cache) { lista.replaceChildren(); return; }
-  if (!cache.itens.length) { lista.replaceChildren(el('p', 'vazio', `Nenhum registro nos últimos ${cache.dias} dias.`)); return; }
-  lista.replaceChildren(...cache.itens.map(r => montarCard(r, obsPendente[r.id])));
+  const lista = $('cards'), itens = registrosComPendentes();
+  if (!itens) { lista.replaceChildren(); return; }
+  if (!itens.length) { lista.replaceChildren(el('p', 'vazio', `Nenhum registro nos últimos ${cache.dias} dias.`)); return; }
+  lista.replaceChildren(...itens.map(montarCard));
+  // Se o detalhe estiver aberto, atualiza o que ele mostra (sem mexer no que está sendo digitado).
+  if (detalheAtual) { const novo = itens.find(r => r.id === detalheAtual.id); if (novo) pintarInfoDetalhe(novo); }
 }
 
-function montarCard(r, pendente) {
+function montarCard(r) {
   const aberto = r.status !== 'Checkout';
-  const card = el('article', 'card' + (aberto ? ' aberto' : ''));
+  const card = el('article', 'card clicavel' + (aberto ? ' aberto' : ''));
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', 'Abrir registro ' + (r.cliente || ''));
 
   const topo = el('div', 'card-topo');
   topo.append(el('strong', null, r.cliente || 'Cliente não informado'), el('span', 'selo', aberto ? 'Em aberto' : 'Concluído'));
   const quando = fmtData(r.checkinHora) + ', ' + fmtHora(r.checkinHora) + (r.checkoutHora ? ' até ' + fmtHora(r.checkoutHora) : '');
   card.append(topo, el('p', 'quando', quando));
 
-  const dl = el('dl');
-  const linha = (rotulo, valor) => { if (valor === '' || valor == null) return; dl.append(el('dt', null, rotulo), el('dd', null, String(valor))); };
-  const num = v => (v === '' || v == null ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
-  const real = v => (v === '' || v == null ? '' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
-  if (r.tempoMin !== '' && r.tempoMin != null) linha('Tempo total', Math.floor(r.tempoMin / 60) + 'h' + String(r.tempoMin % 60).padStart(2, '0'));
-  linha('KM do painel na saída', num(r.kmInicial));
-  linha('KM ideal (calculado)', r.kmIdeal === '' || r.kmIdeal == null ? '' : num(r.kmIdeal) + ' km');
-  linha('KM real', r.kmReal === '' || r.kmReal == null ? '' : num(r.kmReal) + ' km');
-  const gastos = [r.pedagio !== '' && r.pedagio != null ? 'pedágio ' + real(r.pedagio) : '',
-                  r.estacionamento !== '' && r.estacionamento != null ? 'estacionamento ' + real(r.estacionamento) : ''].filter(Boolean);
-  linha('Gastos', gastos.join(', '));
-  let obs = r.observacoes || '';
-  if (pendente && pendente.length) obs = (obs ? obs + '\n' : '') + pendente.map(t => t + ' (aguardando envio)').join('\n');
-  linha('Observações', obs);
-  if (dl.children.length) card.append(dl);
+  const resumo = [];
+  if (!vazio(r.kmReal)) resumo.push('KM real ' + fmtNum(r.kmReal));
+  if (!vazio(r.pedagio)) resumo.push('pedágio ' + fmtReal(r.pedagio));
+  if (!vazio(r.estacionamento)) resumo.push('estacionamento ' + fmtReal(r.estacionamento));
+  if (resumo.length) card.append(el('p', 'resumo', resumo.join(', ')));
 
-  if (!r.editavel) return card;
+  const rodape = el('div', 'card-rodape');
+  if (r.pendente) rodape.append(el('span', 'tag', 'Alterações aguardando envio'));
+  else if (!aberto && vazio(r.kmReal) && r.editavel) rodape.append(el('span', 'tag alerta', 'Falta o KM real'));
+  else rodape.append(el('span'));
+  rodape.append(el('span', 'abrir', r.editavel ? 'Abrir e editar ›' : 'Ver ›'));
+  card.append(rodape);
 
-  const btn = el('button', 'btn-peq', 'Adicionar observação');
-  btn.type = 'button';
-  const ed = el('div', 'editar hidden');
-  const ta = el('textarea');
-  ta.maxLength = 1000;
-  ta.setAttribute('aria-label', 'Nova observação');
-  ta.placeholder = 'Escreva a observação';
-  const botoes = el('div', 'botoes');
-  const cancelar = el('button', 'btn-peq', 'Cancelar'); cancelar.type = 'button';
-  const salvar = el('button', 'btn-peq primario', 'Salvar'); salvar.type = 'button';
-  botoes.append(cancelar, salvar);
-  ed.append(ta, botoes);
-  card.append(btn, ed);
-
-  const abrir = () => { ed.classList.remove('hidden'); btn.classList.add('hidden'); };
-  const fechar = () => { editando = null; ta.value = ''; ed.classList.add('hidden'); btn.classList.remove('hidden'); };
-  btn.addEventListener('click', () => { editando = { id: r.id, texto: '' }; abrir(); ta.focus(); });
-  ta.addEventListener('input', () => { editando = { id: r.id, texto: ta.value }; });
-  cancelar.addEventListener('click', fechar);
-  salvar.addEventListener('click', () => {
-    const texto = ta.value.trim();
-    if (!texto) { fechar(); return; }
-    editando = null;
-    enfileirar('observacao', { id: novoId(), idCheckin: r.id, texto, hora: new Date().toISOString() });
-    pintarHistorico();
-  });
-  // Mantém o texto que estava sendo digitado se a lista for atualizada no meio
-  if (editando && editando.id === r.id) { ta.value = editando.texto; abrir(); }
+  card.addEventListener('click', () => abrirDetalhe(r));
+  card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirDetalhe(r); } });
   return card;
+}
+
+/* ---------- Detalhe do registro (tela cheia) ---------- */
+function pintarInfoDetalhe(r) {
+  detalheAtual = r;
+  const aberto = r.status !== 'Checkout';
+  $('detTitulo').textContent = r.cliente || 'Cliente não informado';
+  $('detQuando').textContent = (aberto ? 'Em aberto, ' : 'Concluído, ') + fmtData(r.checkinHora) + ', ' + fmtHora(r.checkinHora)
+    + (r.checkoutHora ? ' até ' + fmtHora(r.checkoutHora) : '');
+  const dl = $('detInfo');
+  dl.replaceChildren();
+  const linha = (rotulo, valor, href) => {
+    if (vazio(valor)) return;
+    const dd = el('dd');
+    if (href) { const a = el('a', null, valor); a.href = href; a.target = '_blank'; a.rel = 'noopener'; dd.append(a); }
+    else dd.textContent = String(valor);
+    dl.append(el('dt', null, rotulo), dd);
+  };
+  linha('Tempo total', fmtTempo(r.tempoMin));
+  linha('KM do painel na saída', fmtNum(r.kmInicial));
+  linha('KM ideal (calculado)', vazio(r.kmIdeal) ? '' : fmtNum(r.kmIdeal) + ' km');
+  linha('Local do check-in', r.checkinGps ? 'Ver no mapa' : '', r.checkinGps ? linkMapa(r.checkinGps) : null);
+  linha('Local do check-out', r.checkoutGps ? 'Ver no mapa' : '', r.checkoutGps ? linkMapa(r.checkoutGps) : null);
+  linha('Observações', r.observacoes);
+}
+
+function abrirDetalhe(r) {
+  const dlg = $('detalhe');
+  pintarInfoDetalhe(r);
+  $('detMsg').classList.add('hidden');
+  const podeEditar = !!r.editavel;
+  $('detForm').classList.toggle('hidden', !podeEditar);
+  $('detSalvar').classList.toggle('hidden', !podeEditar);
+  $('detPrazo').classList.toggle('hidden', podeEditar);
+  montarFormulario(CAMPOS_EDICAO, $('detForm'), { KM_Real: r.kmReal, Pedagio: r.pedagio, Estacionamento: r.estacionamento });
+  dlg.showModal();
+  dlg.scrollTop = 0;
+  // O botão "voltar" do Android fecha o detalhe em vez de sair do app.
+  history.pushState({ detalhe: true }, '');
+}
+
+function fecharDetalhe() {
+  const dlg = $('detalhe');
+  if (!dlg.open) return;
+  dlg.close();
+  detalheAtual = null;
+  if (history.state && history.state.detalhe) history.back();
+}
+
+function salvarDetalhe() {
+  const r = detalheAtual;
+  if (!r) return;
+  const msg = $('detMsg');
+  let v;
+  try { v = lerCampos(CAMPOS_EDICAO, $('detForm')); }
+  catch (e) { msg.className = 'msg aviso'; msg.textContent = e.message; return; }
+
+  const campos = {};
+  const igual = (a, b) => (vazio(a) && vazio(b)) || Number(a) === Number(b);
+  if (!igual(v.KM_Real, r.kmReal)) campos.KM_Real = v.KM_Real;
+  if (!igual(v.Pedagio, r.pedagio)) campos.Pedagio = v.Pedagio;
+  if (!igual(v.Estacionamento, r.estacionamento)) campos.Estacionamento = v.Estacionamento;
+  const texto = String(v.NovaObs || '').trim();
+
+  if (!Object.keys(campos).length && !texto) { fecharDetalhe(); return; }
+  enfileirar('editar', { id: novoId(), idCheckin: r.id, campos, texto, hora: new Date().toISOString() });
+  fecharDetalhe();
+  pintarHistorico();
 }
 
 /* =========================================================
    Tela
    ========================================================= */
-function montarFormulario(lista) {
-  const f = $('formDados');
+function montarFormulario(lista, f = $('formDados'), valores = {}) {
   f.replaceChildren(...lista.map(c => {
     const label = document.createElement('label');
     label.append(c.rotulo);
@@ -558,6 +669,10 @@ function montarFormulario(lista) {
     else if (c.tipo === 'dinheiro') { el.type = 'text'; el.inputMode = 'decimal'; el.placeholder = '0,00'; }
     else if (c.tipo !== 'textarea') { el.type = 'text'; el.autocapitalize = 'sentences'; }
     if (c.obrigatorio) el.required = true;
+    const val = valores[c.nome];
+    if (val !== undefined && val !== null && val !== '') {
+      el.value = c.tipo === 'dinheiro' ? Number(val).toFixed(2).replace('.', ',') : String(val);
+    }
     label.append(el);
     return label;
   }));
@@ -598,8 +713,8 @@ function mostrarMsg(tipo, texto) {
   m.className = 'msg ' + tipo; m.textContent = texto;
 }
 
-function lerCampos(lista) {
-  const f = $('formDados'), out = {};
+function lerCampos(lista, f = $('formDados')) {
+  const out = {};
   for (const c of lista) {
     const el = f.elements[c.nome];
     let v = el.value.trim();
@@ -715,10 +830,14 @@ $('formLogin').addEventListener('submit', async ev => {
 $('btnAcao').addEventListener('click', acaoPrincipal);
 document.querySelectorAll('.abas button').forEach(b => b.addEventListener('click', () => trocarAba(b.dataset.aba)));
 $('btnAtualizar').addEventListener('click', carregarHistorico);
+$('detFechar').addEventListener('click', fecharDetalhe);
+$('detSalvar').addEventListener('click', salvarDetalhe);
+$('detalhe').addEventListener('cancel', e => { e.preventDefault(); fecharDetalhe(); });
+window.addEventListener('popstate', () => { const d = $('detalhe'); if (d.open) { d.close(); detalheAtual = null; } });
 $('btnSair').addEventListener('click', () => {
   const n = store.get('fila', []).length;
   if (n && !confirm(`Ainda há ${n} registro(s) não enviados. Eles continuam guardados e serão enviados no nome de quem registrou. Trocar mesmo assim?`)) return;
-  esfriarGPS(); store.del('sessao'); store.del('aberto'); store.del('histCache'); editando = null; trocarAba('registrar');
+  esfriarGPS(); store.del('sessao'); store.del('aberto'); store.del('histCache'); trocarAba('registrar');
   render();
 });
 
