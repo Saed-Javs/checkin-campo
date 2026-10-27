@@ -297,6 +297,8 @@ const GPS_MAX_M = 50;          // acima disto o registro é BLOQUEADO
 const GPS_MIN_MS = 5000;       // lê por pelo menos 5 s, mesmo que chegue cedo no alvo
 const GPS_LIMITE_MS = 30000;   // tempo máximo lendo
 const GPS_IDADE_MAX_MS = 5000; // leitura com mais de 5 s de idade é descartada
+const GPS_ESTAVEL_BOM_MS = 4000;   // com precisão boa (≤ 20 m), para se não melhorar em 4 s
+const GPS_ESTAVEL_OK_MS = 8000;    // com precisão aceitável (≤ 50 m), para se não melhorar em 8 s
 
 /* =========================================================
    Estado local (sobrevive a fechar o app e a ficar sem sinal)
@@ -323,14 +325,22 @@ const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toStr
 async function chamar(acao, extra = {}, cred = store.get('sessao')) {
   const s = cred;
   // text/plain evita o preflight CORS, que o Apps Script não responde.
-  const r = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ acao, vendedor: s?.nome, pin: s?.pin, ...extra }),
-    redirect: 'follow',
-  });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  // Desiste em 25 s: se a internet cair no meio, a fila não fica presa.
+  const ctrl = new AbortController();
+  const limite = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ acao, vendedor: s?.nome, pin: s?.pin, ...extra }),
+      redirect: 'follow',
+      signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(limite);
+  }
 }
 
 /* =========================================================
@@ -341,10 +351,22 @@ async function chamar(acao, extra = {}, cred = store.get('sessao')) {
    ========================================================= */
 // Um único "watch" do GPS para o app todo (dois ao mesmo tempo atrapalham alguns aparelhos).
 let watchId = null, ultimaPos = null, ouvinte = null, ouvinteErro = null;
+
+// Idade real de uma leitura, sem depender do relógio do celular.
+// Em muitos Android a hora do GPS difere alguns segundos do relógio do aparelho.
+// Guardamos a menor diferença já vista (a das leituras recém-chegadas) e medimos
+// a idade de cada leitura em relação a ela.
+let menorAtraso = Infinity;
+function idadeLeitura(p) {
+  const atraso = Date.now() - p.timestamp;
+  if (atraso < menorAtraso) menorAtraso = atraso;
+  return atraso - menorAtraso;
+}
+
 function ligarGPS() {
   if (!('geolocation' in navigator) || watchId !== null) return;
   watchId = navigator.geolocation.watchPosition(
-    p => { ultimaPos = p; if (ouvinte) ouvinte(p); else pintarGPS('aquecido', p.coords.accuracy); },
+    p => { idadeLeitura(p); ultimaPos = p; if (ouvinte) ouvinte(p); else pintarGPS('aquecido', p.coords.accuracy); },
     e => { if (ouvinteErro) ouvinteErro(e); },
     { enableHighAccuracy: true, maximumAge: 0 }
   );
@@ -355,35 +377,46 @@ function esfriarGPS() {
   ultimaPos = null;
 }
 
-function lerGPS(aoAtualizar) {
+function lerGPS(aoAtualizar, aoTick) {
   return new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) return reject(new Error('Este navegador não oferece localização.'));
     const t0 = Date.now();
-    let melhor = null, leituras = 0, encerrado = false, timer, timerMin;
+    let melhor = null, tMelhora = t0, leituras = 0, encerrado = false, relogio;
+    const parar = () => { encerrado = true; ouvinte = null; ouvinteErro = null; clearInterval(relogio); };
     const fim = () => {
-      if (encerrado) return; encerrado = true;
-      ouvinte = null; ouvinteErro = null; clearTimeout(timer); clearTimeout(timerMin);
+      if (encerrado) return;
+      parar();
       if (melhor) { melhor.leituras = leituras; resolve(melhor); }
       else reject(new Error('Sem sinal de GPS. Vá para perto de uma janela ou para fora e tente de novo.'));
     };
     const receber = p => {
-      const agora = Date.now();
-      if (agora - p.timestamp > GPS_IDADE_MAX_MS) return;   // posição com mais de 5 s: descarta
+      if (encerrado) return;
+      if (idadeLeitura(p) > GPS_IDADE_MAX_MS) return;   // posição antiga (cache): descarta
       leituras++;
-      if (!melhor || p.coords.accuracy < melhor.coords.accuracy) { melhor = p; aoAtualizar(p.coords.accuracy); }
-      if (melhor.coords.accuracy <= GPS_ALVO_M && agora - t0 >= GPS_MIN_MS) fim();
+      if (!melhor || p.coords.accuracy < melhor.coords.accuracy - 0.5) {
+        melhor = p; tMelhora = Date.now(); aoAtualizar(p.coords.accuracy);
+      }
     };
+    // A cada meio segundo decide se já dá para parar.
+    relogio = setInterval(() => {
+      const agora = Date.now(), decorrido = agora - t0, semMelhora = agora - tMelhora;
+      if (aoTick) aoTick(Math.max(0, Math.ceil((GPS_LIMITE_MS - decorrido) / 1000)));
+      if (decorrido >= GPS_LIMITE_MS) return fim();
+      if (!melhor || decorrido < GPS_MIN_MS) return;
+      const a = melhor.coords.accuracy;
+      if (a <= GPS_ALVO_M) return fim();
+      if (a <= GPS_BOM_M && semMelhora >= GPS_ESTAVEL_BOM_MS) return fim();
+      if (a <= GPS_MAX_M && semMelhora >= GPS_ESTAVEL_OK_MS) return fim();
+    }, 500);
     ouvinte = receber;
     ouvinteErro = e => {
       if (e.code === e.PERMISSION_DENIED && !encerrado) {
-        encerrado = true; ouvinte = null; ouvinteErro = null; clearTimeout(timer); clearTimeout(timerMin);
+        parar();
         reject(new Error('Localização bloqueada. Libere em Configurações do navegador > Permissões do site > Localização, e marque "Precisa".'));
       }
     };
     ligarGPS();
-    if (ultimaPos) receber(ultimaPos); // leitura do aquecimento, só vale se tiver menos de 5 s
-    timerMin = setTimeout(() => { if (melhor && melhor.coords.accuracy <= GPS_ALVO_M) fim(); }, GPS_MIN_MS + 50);
-    timer = setTimeout(fim, GPS_LIMITE_MS);
+    if (ultimaPos) receber(ultimaPos); // leitura do aquecimento, só vale se for recente
   });
 }
 
@@ -746,11 +779,12 @@ async function acaoPrincipal() {
   btn.disabled = true;
   const textoOriginal = btn.textContent;
   btn.textContent = 'Lendo localização…';
+  const textoLendo = seg => { btn.textContent = `Lendo localização… ${seg} s`; };
   pintarGPS('lendo');
 
   let pos;
   try {
-    pos = await lerGPS(prec => pintarGPS('lendo', prec));
+    pos = await lerGPS(prec => pintarGPS('lendo', prec), textoLendo);
   } catch (e) {
     pintarGPS('espera'); mostrarMsg('erro', e.message);
     btn.disabled = false; btn.textContent = textoOriginal;
