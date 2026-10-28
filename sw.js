@@ -1,6 +1,6 @@
 // Guarda o app no celular para abrir mesmo sem internet.
 // Mude a versão sempre que publicar alteração no index.html.
-const CACHE = 'checkin-v8';
+const CACHE = 'checkin-v9';
 const ARQUIVOS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

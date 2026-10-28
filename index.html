@@ -136,10 +136,6 @@
   .card dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .card.clicavel { cursor: pointer; }
   .card.clicavel:active { transform: scale(.99); }
-  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; margin-top: .75rem; }
-  .stat { display: grid; gap: .05rem; background: var(--bg); border-radius: 10px; padding: .45rem .75rem; }
-  .stat-rot { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  .stat-val { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
   .card-rodape { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-top: .7rem; }
   .card-rodape .abrir { font-size: .9rem; font-weight: 600; color: var(--in); white-space: nowrap; }
   .tag { font-size: .8rem; font-weight: 600; color: var(--muted); }
@@ -635,19 +631,6 @@ function montarCard(r) {
   const quando = fmtData(r.checkinHora) + ', ' + fmtHora(r.checkinHora) + (r.checkoutHora ? ' até ' + fmtHora(r.checkoutHora) : '');
   card.append(topo, el('p', 'quando', quando));
 
-  // Números do registro em blocos: rótulo pequeno em cima, valor em destaque embaixo
-  const stats = el('div', 'stats');
-  const stat = (rotulo, valor) => {
-    if (vazio(valor)) return;
-    const b = el('div', 'stat');
-    b.append(el('span', 'stat-rot', rotulo), el('span', 'stat-val', valor));
-    stats.append(b);
-  };
-  stat('KM real', vazio(r.kmReal) ? '' : fmtNum(r.kmReal) + ' km');
-  stat('Tempo', fmtTempo(r.tempoMin));
-  stat('Pedágio', fmtReal(r.pedagio));
-  stat('Estacionamento', fmtReal(r.estacionamento));
-  if (stats.children.length) card.append(stats);
 
   const rodape = el('div', 'card-rodape');
   if (r.pendente) rodape.append(el('span', 'tag', 'Alterações aguardando envio'));
