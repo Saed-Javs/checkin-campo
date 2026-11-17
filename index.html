@@ -74,6 +74,7 @@
   .estado { background: var(--card); border-left: 6px solid var(--line); border-radius: 4px 14px 14px 4px; padding: 1rem 1.1rem; margin-bottom: 1.25rem; }
   .estado.aberto { border-left-color: var(--out); }
   .estado h1 { margin-bottom: .25rem; }
+  .estado .link { background: none; border: 0; padding: .35rem 0 0; color: var(--in); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; width: auto; min-height: 0; box-shadow: none; }
   .relogio { font-variant-numeric: tabular-nums; }
 
   /* Formulário */
@@ -215,6 +216,7 @@
   <section class="estado" id="estado" aria-live="polite">
     <h1 id="estadoTitulo">Nenhum check-in aberto</h1>
     <p class="muted" id="estadoDetalhe">Preencha os dados e faça o check-in ao chegar.</p>
+    <button type="button" class="link hidden" id="btnEditarCliente">Editar cliente</button>
   </section>
 
   <form id="formDados" novalidate></form>
@@ -287,6 +289,7 @@ const CAMPOS = {
 
 // Campos que o vendedor pode completar depois, abrindo o card em "Meus registros".
 const CAMPOS_EDICAO = [
+  { nome: 'Cliente',        rotulo: 'Cliente ou local', tipo: 'text', obrigatorio: true },
   { nome: 'KM_Real',        rotulo: 'KM real (quanto andou)', tipo: 'number' },
   { nome: 'Pedagio',        rotulo: 'Pedágio (R$)', tipo: 'dinheiro' },
   { nome: 'Estacionamento', rotulo: 'Estacionamento (R$)', tipo: 'dinheiro' },
@@ -566,6 +569,7 @@ function registrosComPendentes() {
     const p = pend[r.id];
     if (!p) return r;
     const c = p.campos, x = { ...r, pendente: true };
+    if ('Cliente' in c) x.cliente = c.Cliente;
     if ('KM_Real' in c) x.kmReal = c.KM_Real;
     if ('Pedagio' in c) x.pedagio = c.Pedagio;
     if ('Estacionamento' in c) x.estacionamento = c.Estacionamento;
@@ -674,7 +678,7 @@ function abrirDetalhe(r) {
   $('detForm').classList.toggle('hidden', !podeEditar);
   $('detSalvar').classList.toggle('hidden', !podeEditar);
   $('detPrazo').classList.toggle('hidden', podeEditar);
-  montarFormulario(CAMPOS_EDICAO, $('detForm'), { KM_Real: r.kmReal, Pedagio: r.pedagio, Estacionamento: r.estacionamento });
+  montarFormulario(CAMPOS_EDICAO, $('detForm'), { Cliente: r.cliente, KM_Real: r.kmReal, Pedagio: r.pedagio, Estacionamento: r.estacionamento });
   dlg.showModal();
   dlg.scrollTop = 0;
   // O botão "voltar" do Android fecha o detalhe em vez de sair do app.
@@ -702,9 +706,14 @@ function salvarDetalhe() {
   if (!igual(v.KM_Real, r.kmReal)) campos.KM_Real = v.KM_Real;
   if (!igual(v.Pedagio, r.pedagio)) campos.Pedagio = v.Pedagio;
   if (!igual(v.Estacionamento, r.estacionamento)) campos.Estacionamento = v.Estacionamento;
+  if (String(v.Cliente || '').trim() !== String(r.cliente || '').trim()) campos.Cliente = String(v.Cliente).trim();
   const texto = String(v.NovaObs || '').trim();
 
   if (!Object.keys(campos).length && !texto) { fecharDetalhe(); return; }
+  if (campos.Cliente) {
+    const ab = store.get('aberto');
+    if (ab && ab.id === r.id) { store.set('aberto', { ...ab, cliente: campos.Cliente }); render(); }
+  }
   enfileirar('editar', { id: novoId(), idCheckin: r.id, campos, texto, hora: new Date().toISOString() });
   fecharDetalhe();
   pintarHistorico();
@@ -748,6 +757,7 @@ function render() {
     $('estadoTitulo').innerHTML = 'Check-in aberto desde <span class="relogio"></span>';
     $('estadoTitulo').querySelector('.relogio').textContent = fmtDiaHora(aberto.hora);
     $('estadoDetalhe').textContent = aberto.cliente || 'Faça o check-out ao terminar.';
+    $('btnEditarCliente').classList.remove('hidden');
     btn.textContent = 'Fazer check-out';
     btn.classList.add('saida');
     montarFormulario(CAMPOS.checkout);
@@ -755,6 +765,7 @@ function render() {
     est.classList.remove('aberto');
     $('estadoTitulo').textContent = 'Nenhum check-in aberto';
     $('estadoDetalhe').textContent = 'Preencha os dados e faça o check-in ao chegar.';
+    $('btnEditarCliente').classList.add('hidden');
     btn.textContent = 'Fazer check-in';
     btn.classList.remove('saida');
     montarFormulario(CAMPOS.checkin);
@@ -888,6 +899,12 @@ document.querySelectorAll('.abas button').forEach(b => b.addEventListener('click
 $('btnAtualizar').addEventListener('click', carregarHistorico);
 $('detFechar').addEventListener('click', fecharDetalhe);
 $('detSalvar').addEventListener('click', salvarDetalhe);
+$('btnEditarCliente').addEventListener('click', () => {
+  const ab = store.get('aberto');
+  if (!ab) return;
+  const doCache = (registrosComPendentes() || []).find(r => r.id === ab.id);
+  abrirDetalhe(doCache || { id: ab.id, cliente: ab.cliente, status: 'Checkin', checkinHora: ab.hora, kmInicial: ab.kmInicial, editavel: true });
+});
 $('detalhe').addEventListener('cancel', e => { e.preventDefault(); fecharDetalhe(); });
 window.addEventListener('popstate', () => { const d = $('detalhe'); if (d.open) { d.close(); detalheAtual = null; } });
 $('btnSair').addEventListener('click', () => {
