@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F766E">
+<title>Check-in de campo</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #E9EFEE;
+    --card: #FFFFFF;
+    --ink: #17302D;
+    --muted: #586A67;
+    --line: #C9D5D3;
+    --in: #0F766E;
+    --in-ink: #FFFFFF;
+    --out: #B4530A;
+    --out-ink: #FFFFFF;
+    --bom: #15803D;
+    --medio: #CA8A04;
+    --ruim: #B91C1C;
+    --aviso-bg: #FDF3E1;
+    --erro-bg: #FBE7E7;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0E1918;
+      --card: #172624;
+      --ink: #E3EEEC;
+      --muted: #9BB0AC;
+      --line: #2C3F3C;
+      --in: #2BA89B;
+      --in-ink: #06201D;
+      --out: #EB9A45;
+      --out-ink: #2A1503;
+      --bom: #4ADE80;
+      --medio: #FACC15;
+      --ruim: #F87171;
+      --aviso-bg: #33270F;
+      --erro-bg: #3A1717;
+    }
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100vh;
+  }
+  main { max-width: 32rem; margin: 0 auto; padding: 1rem 1rem 8.5rem; }
+  h1 { font-size: 1.6rem; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .hidden { display: none !important; }
+
+  /* Topo */
+  .topo { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .25rem 0 1rem; }
+  .quem { font-weight: 600; }
+  .sync { font-size: .85rem; color: var(--muted); display: flex; align-items: center; gap: .4rem; }
+  .sync::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: var(--bom); }
+  .sync.pendente::before { background: var(--medio); }
+  .sync.offline::before { background: var(--ruim); }
+  .link { background: none; border: 0; color: var(--muted); font: inherit; font-size: .9rem; text-decoration: underline; padding: .5rem; margin: -.5rem; cursor: pointer; }
+
+  /* Estado atual: a faixa lateral muda de cor conforme o estado */
+  .estado { background: var(--card); border-left: 6px solid var(--line); border-radius: 4px 14px 14px 4px; padding: 1rem 1.1rem; margin-bottom: 1.25rem; }
+  .estado.aberto { border-left-color: var(--out); }
+  .estado h1 { margin-bottom: .25rem; }
+  .estado .link { background: none; border: 0; padding: .35rem 0 0; color: var(--in); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; width: auto; min-height: 0; box-shadow: none; }
+  .relogio { font-variant-numeric: tabular-nums; }
+
+  /* Formulário */
+  form { display: grid; gap: 1rem; }
+  label { display: grid; gap: .35rem; font-weight: 600; font-size: .95rem; }
+  label small { font-weight: 400; color: var(--muted); }
+  input, textarea {
+    font: inherit; color: var(--ink); background: var(--card);
+    border: 1.5px solid var(--line); border-radius: 10px; padding: .75rem .85rem; width: 100%;
+  }
+  textarea { min-height: 4.5rem; resize: vertical; }
+  label input, label textarea { font-weight: 400; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid var(--in); outline-offset: 2px; }
+
+  /* GPS: o elemento central da tela */
+  .gps { display: flex; align-items: center; gap: 1rem; background: var(--card); border-radius: 14px; padding: .9rem 1rem; margin-top: 1.25rem; }
+  .dial { width: 64px; height: 64px; flex: none; }
+  .dial circle { fill: none; stroke-width: 7; }
+  .dial .trilho { stroke: var(--line); }
+  .dial .valor { stroke: var(--muted); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .4s, stroke .4s; }
+  .gps.lendo .dial .valor { animation: girar 1.2s linear infinite; }
+  @keyframes girar { to { transform: rotate(270deg); } }
+  .gps strong { display: block; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+
+  .msg { border-radius: 10px; padding: .8rem 1rem; margin-top: 1rem; font-size: .95rem; }
+  .msg.aviso { background: var(--aviso-bg); }
+  .msg.erro { background: var(--erro-bg); }
+
+  /* Botão principal fixo embaixo, ao alcance do polegar */
+  .acao {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, var(--bg) 70%, transparent);
+  }
+  .acao button { display: block; width: 100%; max-width: 30rem; margin: 0 auto; }
+  .btn {
+    font: inherit; font-size: 1.15rem; font-weight: 700; border: 0; border-radius: 14px;
+    padding: 1.1rem 1rem; cursor: pointer; background: var(--in); color: var(--in-ink);
+  }
+  .btn.saida { background: var(--out); color: var(--out-ink); }
+  .btn:disabled { opacity: .55; cursor: progress; }
+
+  /* Abas */
+  .abas { display: grid; grid-template-columns: repeat(3, 1fr); gap: .25rem; background: var(--line); padding: .25rem; border-radius: 12px; margin-bottom: 1.25rem; }
+  .abas button { font: inherit; font-size: .95rem; font-weight: 600; border: 0; border-radius: 9px; padding: .7rem .5rem; background: transparent; color: var(--muted); cursor: pointer; }
+  .abas button[aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / .1); }
+
+  /* Meus registros */
+  .hist-topo { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .75rem; }
+  .hist-topo p { font-size: .9rem; }
+  .cards { display: grid; gap: .75rem; }
+  .card { background: var(--card); border-left: 6px solid var(--in); border-radius: 4px 14px 14px 4px; padding: .95rem 1.05rem; }
+  .card.aberto { border-left-color: var(--out); }
+  .card-topo { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; }
+  .card-topo strong { font-size: 1.05rem; overflow-wrap: anywhere; }
+  .selo { font-size: .8rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .card .quando { color: var(--muted); font-size: .95rem; font-variant-numeric: tabular-nums; margin-top: .1rem; }
+  .card dl { margin: .7rem 0 0; display: grid; gap: .2rem; font-size: .95rem; }
+  .card dt { font-size: .8rem; font-weight: 600; color: var(--muted); margin-top: .35rem; }
+  .card dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .card.clicavel { cursor: pointer; }
+  .card.clicavel:active { transform: scale(.99); }
+  .card-rodape { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-top: .7rem; }
+  .card-rodape .abrir { font-size: .9rem; font-weight: 600; color: var(--in); white-space: nowrap; }
+  .tag { font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .tag.alerta { color: var(--out); }
+
+  /* Detalhe em tela cheia */
+  dialog#detalhe { border: 0; padding: 0; margin: 0; width: 100%; max-width: 100%; height: 100%; max-height: 100%;
+    background: var(--bg); color: var(--ink); overflow-y: auto; }
+  dialog#detalhe::backdrop { background: rgb(0 0 0 / .4); }
+  .det { max-width: 32rem; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 1rem) 1rem 1rem; display: grid; gap: .25rem; }
+  .det .voltar { justify-self: start; text-decoration: none; font-weight: 600; font-size: 1rem; color: var(--in); margin: 0 0 .75rem; }
+  .det h2 { font-size: 1.5rem; line-height: 1.2; margin: 0; overflow-wrap: anywhere; }
+  .det-info { background: var(--card); border-radius: 14px; padding: .4rem 1rem .9rem; margin: 1rem 0; display: grid; gap: .15rem; }
+  .det-info:empty { display: none; }
+  .det-info dt { font-size: .8rem; font-weight: 600; color: var(--muted); margin-top: .5rem; }
+  .det-info dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .det-info a { color: var(--in); font-weight: 600; }
+  .det-acoes { position: sticky; bottom: 0; padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, var(--bg) 70%, transparent); }
+  .det-acoes .btn { display: block; width: 100%; max-width: 30rem; margin: 0 auto; }
+  .btn-peq { font: inherit; font-size: .95rem; font-weight: 600; border: 1.5px solid var(--line); border-radius: 10px; padding: .6rem 1rem; background: transparent; color: var(--ink); cursor: pointer; }
+  .btn-peq.primario { background: var(--in); border-color: var(--in); color: var(--in-ink); }
+  .btn-peq:disabled { opacity: .55; }
+  .dia { font-size: .95rem; font-weight: 700; color: var(--muted); margin: .9rem 0 .1rem; }
+  .dia:first-child { margin-top: 0; }
+  .vazio { text-align: center; color: var(--muted); padding: 2.5rem 1rem; }
+  #msgHist { margin: 0 0 .75rem; }
+
+  /* Login */
+  #login { padding-top: 12vh; }
+  #login h1 { font-size: 2rem; margin-bottom: .5rem; }
+  #login form { margin-top: 2rem; }
+  #login .btn { margin-top: .5rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gps.lendo .dial .valor { animation: none; }
+    .dial .valor { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<main id="login" class="hidden">
+  <h1>Check-in de campo</h1>
+  <p class="muted">Entre com seu nome e o PIN que o escritório passou. Você só faz isso uma vez neste celular.</p>
+  <form id="formLogin" novalidate>
+    <label>Nome
+      <input name="nome" autocomplete="username" autocapitalize="words" required>
+    </label>
+    <label>PIN
+      <input name="pin" inputmode="numeric" autocomplete="current-password" type="password" required>
+    </label>
+    <button class="btn" type="submit">Entrar</button>
+    <div id="msgLogin" class="msg erro hidden" role="alert"></div>
+  </form>
+</main>
+
+<!-- APP -->
+<main id="app" class="hidden">
+  <div class="topo">
+    <div>
+      <div class="quem" id="nomeVendedor"></div>
+      <div class="sync" id="sync" aria-live="polite">Tudo enviado</div>
+    </div>
+    <button class="link" id="btnSair" type="button">Trocar usuário</button>
+  </div>
+
+  <nav class="abas" role="tablist" aria-label="Seções">
+    <button type="button" role="tab" data-aba="registrar" aria-selected="true">Registrar</button>
+    <button type="button" role="tab" data-aba="hoje" aria-selected="false">Hoje</button>
+    <button type="button" role="tab" data-aba="historico" aria-selected="false">Histórico</button>
+  </nav>
+
+  <section id="abaRegistrar">
+
+  <section class="estado" id="estado" aria-live="polite">
+    <h1 id="estadoTitulo">Nenhum check-in aberto</h1>
+    <p class="muted" id="estadoDetalhe">Preencha os dados e faça o check-in ao chegar.</p>
+    <button type="button" class="link hidden" id="btnEditarCliente">Editar cliente</button>
+  </section>
+
+  <form id="formDados" novalidate></form>
+
+  <div class="gps" id="gps">
+    <svg class="dial" viewBox="0 0 64 64" aria-hidden="true">
+      <circle class="trilho" cx="32" cy="32" r="27"></circle>
+      <circle class="valor" id="dialValor" cx="32" cy="32" r="27" stroke-dasharray="169.6" stroke-dashoffset="169.6"></circle>
+    </svg>
+    <div>
+      <strong id="gpsTitulo">GPS em espera</strong>
+      <span class="muted" id="gpsDetalhe">Ligando o GPS…</span>
+    </div>
+  </div>
+
+  <div id="msgApp" class="msg hidden" role="alert"></div>
+
+  </section>
+
+  <section id="abaHistorico" class="hidden" aria-live="polite">
+    <div class="hist-topo">
+      <p class="muted" id="histInfo"></p>
+      <button class="btn-peq" id="btnAtualizar" type="button">Atualizar</button>
+    </div>
+    <div id="msgHist" class="msg aviso hidden"></div>
+    <div class="cards" id="cards"></div>
+  </section>
+</main>
+
+<dialog id="detalhe" aria-labelledby="detTitulo">
+  <div class="det">
+    <button class="link voltar" id="detFechar" type="button">‹ Voltar</button>
+    <h2 id="detTitulo"></h2>
+    <p class="muted" id="detQuando"></p>
+    <dl class="det-info" id="detInfo"></dl>
+    <p class="msg aviso hidden" id="detPrazo">O prazo para editar este registro já passou.</p>
+    <form id="detForm" novalidate></form>
+    <div id="detMsg" class="msg hidden" role="alert"></div>
+  </div>
+  <div class="det-acoes">
+    <button class="btn" id="detSalvar" type="button">Salvar</button>
+  </div>
+</dialog>
+
+<div class="acao hidden" id="barraAcao">
+  <button class="btn" id="btnAcao" type="button">Fazer check-in</button>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURAÇÃO — ajuste aqui
+   ========================================================= */
+const API_URL = 'https://script.google.com/macros/s/AKfycbyi0TwquWTikeXPNC8-9mxAJ1Xla22tHOUmujckcBHpk1ngVYbol1C9GV1aUEUeqqJ-/exec';
+
+// "nome" = cabeçalho da coluna na aba Registros. "Observacao" vai para a coluna Observacoes.
+// tipo: text | number | dinheiro | textarea
+const CAMPOS = {
+  checkin: [
+    { nome: 'Cliente',    rotulo: 'Cliente ou local', tipo: 'text', obrigatorio: true },
+    { nome: 'KM_Inicial', rotulo: 'KM do painel na saída', dica: 'opcional', tipo: 'number' },
+    { nome: 'Observacao', rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
+  ],
+  checkout: [
+    { nome: 'KM_Real',        rotulo: 'KM real (quanto andou)', dica: 'opcional', tipo: 'number' },
+    { nome: 'Pedagio',        rotulo: 'Pedágio (R$)', dica: 'opcional', tipo: 'dinheiro' },
+    { nome: 'Estacionamento', rotulo: 'Estacionamento (R$)', dica: 'opcional', tipo: 'dinheiro' },
+    { nome: 'Observacao',     rotulo: 'Observação', dica: 'opcional', tipo: 'textarea' },
+  ],
+};
+
+// Campos que o vendedor pode completar depois, abrindo o card em "Meus registros".
+const CAMPOS_EDICAO = [
+  { nome: 'Cliente',        rotulo: 'Cliente ou local', tipo: 'text', obrigatorio: true },
+  { nome: 'KM_Real',        rotulo: 'KM real (quanto andou)', tipo: 'number' },
+  { nome: 'Pedagio',        rotulo: 'Pedágio (R$)', tipo: 'dinheiro' },
+  { nome: 'Estacionamento', rotulo: 'Estacionamento (R$)', tipo: 'dinheiro' },
+  { nome: 'NovaObs',        rotulo: 'Adicionar observação', tipo: 'textarea' },
+];
+
+const GPS_ALVO_M = 10;         // para de ler quando a precisão chega a isto
+const GPS_BOM_M = 20;          // até aqui: anel verde
+const GPS_MAX_M = 50;          // acima disto o registro é BLOQUEADO
+const GPS_MIN_MS = 5000;       // lê por pelo menos 5 s, mesmo que chegue cedo no alvo
+const GPS_LIMITE_MS = 30000;   // tempo máximo lendo
+const GPS_IDADE_MAX_MS = 5000; // leitura com mais de 5 s de idade é descartada
+const GPS_ESTAVEL_BOM_MS = 4000;   // com precisão boa (≤ 20 m), para se não melhorar em 4 s
+const GPS_ESTAVEL_OK_MS = 8000;    // com precisão aceitável (≤ 50 m), para se não melhorar em 8 s
+
+/* =========================================================
+   Estado local (sobrevive a fechar o app e a ficar sem sinal)
+   ========================================================= */
+const store = {
+  get(k, padrao) { try { const v = localStorage.getItem(k); return v === null ? padrao : JSON.parse(v); } catch { return padrao; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+// sessao: {nome, pin} | aberto: {id, hora, cliente, kmInicial} | fila: [payload] | histCache: {quando, dias, itens}
+
+const $ = id => document.getElementById(id);
+const fmtHora = iso => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const fmtDiaHora = iso => {
+  const d = new Date(iso), hoje = new Date();
+  const mesmoDia = d.toDateString() === hoje.toDateString();
+  return mesmoDia ? fmtHora(iso) : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + fmtHora(iso);
+};
+const novoId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+
+/* =========================================================
+   API
+   ========================================================= */
+async function chamar(acao, extra = {}, cred = store.get('sessao')) {
+  const s = cred;
+  // text/plain evita o preflight CORS, que o Apps Script não responde.
+  // Desiste em 25 s: se a internet cair no meio, a fila não fica presa.
+  const ctrl = new AbortController();
+  const limite = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ acao, vendedor: s?.nome, pin: s?.pin, ...extra }),
+      redirect: 'follow',
+      signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(limite);
+  }
+}
+
+/* =========================================================
+   GPS — máxima precisão
+   1. Aquecimento: com o app aberto, o GPS fica ligado para já estar "quente" no toque.
+   2. No toque, só valem leituras com menos de 5 s de idade (posição antiga de cache é descartada).
+   3. Lê por no mínimo 5 s e guarda a mais precisa; para ao atingir ±10 m ou em 30 s.
+   ========================================================= */
+// Um único "watch" do GPS para o app todo (dois ao mesmo tempo atrapalham alguns aparelhos).
+let watchId = null, ultimaPos = null, ouvinte = null, ouvinteErro = null;
+
+// Idade real de uma leitura, sem depender do relógio do celular.
+// Em muitos Android a hora do GPS difere alguns segundos do relógio do aparelho.
+// Guardamos a menor diferença já vista (a das leituras recém-chegadas) e medimos
+// a idade de cada leitura em relação a ela.
+let menorAtraso = Infinity;
+function idadeLeitura(p) {
+  const atraso = Date.now() - p.timestamp;
+  if (atraso < menorAtraso) menorAtraso = atraso;
+  return atraso - menorAtraso;
+}
+
+function ligarGPS() {
+  if (!('geolocation' in navigator) || watchId !== null) return;
+  watchId = navigator.geolocation.watchPosition(
+    p => { idadeLeitura(p); ultimaPos = p; if (ouvinte) ouvinte(p); else pintarGPS('aquecido', p.coords.accuracy); },
+    e => { if (ouvinteErro) ouvinteErro(e); },
+    { enableHighAccuracy: true, maximumAge: 0 }
+  );
+}
+function aquecerGPS() { if (store.get('sessao')) ligarGPS(); }
+function esfriarGPS() {
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  ultimaPos = null;
+}
+
+function lerGPS(aoAtualizar, aoTick) {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('Este navegador não oferece localização.'));
+    const t0 = Date.now();
+    let melhor = null, tMelhora = t0, leituras = 0, encerrado = false, relogio;
+    const parar = () => { encerrado = true; ouvinte = null; ouvinteErro = null; clearInterval(relogio); };
+    const fim = () => {
+      if (encerrado) return;
+      parar();
+      if (melhor) { melhor.leituras = leituras; resolve(melhor); }
+      else reject(new Error('Sem sinal de GPS. Vá para perto de uma janela ou para fora e tente de novo.'));
+    };
+    const receber = p => {
+      if (encerrado) return;
+      if (idadeLeitura(p) > GPS_IDADE_MAX_MS) return;   // posição antiga (cache): descarta
+      leituras++;
+      if (!melhor || p.coords.accuracy < melhor.coords.accuracy - 0.5) {
+        melhor = p; tMelhora = Date.now(); aoAtualizar(p.coords.accuracy);
+      }
+    };
+    // A cada meio segundo decide se já dá para parar.
+    relogio = setInterval(() => {
+      const agora = Date.now(), decorrido = agora - t0, semMelhora = agora - tMelhora;
+      if (aoTick) aoTick(Math.max(0, Math.ceil((GPS_LIMITE_MS - decorrido) / 1000)));
+      if (decorrido >= GPS_LIMITE_MS) return fim();
+      if (!melhor || decorrido < GPS_MIN_MS) return;
+      const a = melhor.coords.accuracy;
+      if (a <= GPS_ALVO_M) return fim();
+      if (a <= GPS_BOM_M && semMelhora >= GPS_ESTAVEL_BOM_MS) return fim();
+      if (a <= GPS_MAX_M && semMelhora >= GPS_ESTAVEL_OK_MS) return fim();
+    }, 500);
+    ouvinte = receber;
+    ouvinteErro = e => {
+      if (e.code === e.PERMISSION_DENIED && !encerrado) {
+        parar();
+        reject(new Error('Localização bloqueada. Libere em Configurações do navegador > Permissões do site > Localização, e marque "Precisa".'));
+      }
+    };
+    ligarGPS();
+    if (ultimaPos) receber(ultimaPos); // leitura do aquecimento, só vale se for recente
+  });
+}
+
+function pintarGPS(estado, precisao) {
+  const gps = $('gps'), valor = $('dialValor'), C = 169.6;
+  gps.classList.toggle('lendo', estado === 'lendo' && precisao == null);
+  if (estado === 'espera') {
+    valor.style.stroke = ''; valor.style.strokeDashoffset = C;
+    $('gpsTitulo').textContent = 'GPS em espera';
+    $('gpsDetalhe').textContent = 'Ligando o GPS…';
+    return;
+  }
+  if (precisao == null) {
+    valor.style.stroke = ''; valor.style.strokeDashoffset = C * 0.75;
+    $('gpsTitulo').textContent = 'Procurando sinal…';
+    $('gpsDetalhe').textContent = 'Mantenha o celular parado por alguns segundos.';
+    return;
+  }
+  // Quanto menor a precisão em metros, mais cheio o anel (10 m = cheio, 100 m+ = quase vazio)
+  const frac = Math.max(0.08, Math.min(1, 1 - (precisao - GPS_ALVO_M) / 90));
+  const cor = precisao <= GPS_BOM_M ? 'var(--bom)' : precisao <= GPS_MAX_M ? 'var(--medio)' : 'var(--ruim)';
+  valor.style.stroke = cor; valor.style.strokeDashoffset = C * (1 - frac);
+  $('gpsTitulo').textContent = '± ' + Math.round(precisao) + ' m';
+  $('gpsDetalhe').textContent =
+      estado === 'lendo' ? 'Melhorando a precisão…'
+    : precisao <= GPS_BOM_M ? 'Localização precisa.'
+    : precisao <= GPS_MAX_M ? 'Localização aceitável.'
+    : estado === 'aquecido' ? 'Sinal fraco. Chegue perto de uma janela.'
+    : 'Sinal fraco demais para registrar.';
+}
+
+/* =========================================================
+   Fila offline — envia na ordem; só remove quando o servidor responde
+   ========================================================= */
+let enviando = false;
+async function enviarFila() {
+  if (enviando) return;
+  enviando = true;
+  let enviouAlgo = false;
+  try {
+    let fila = store.get('fila', []);
+    while (fila.length) {
+      const item = fila[0];
+      let resp;
+      try { resp = await chamar(item.acao, item.dados, item.cred); }
+      catch { break; } // sem rede: tenta depois
+
+      if (!resp.ok && (resp.temporario || resp.auth === false)) {
+        if (resp.auth === false) mostrarMsg('erro', 'Seu PIN não é mais aceito. Toque em "Trocar usuário" e entre de novo. Os registros continuam guardados.');
+        break;
+      }
+      fila.shift(); store.set('fila', fila);
+      enviouAlgo = true;
+      if (!resp.ok) {
+        mostrarMsg('erro', 'A planilha recusou um registro: ' + resp.erro);
+        if (resp.aberto) { store.set('aberto', resp.aberto); render(); }
+      }
+    }
+  } finally {
+    enviando = false;
+    pintarSync();
+    if (abaAtual !== 'registrar') { if (enviouAlgo && !store.get('fila', []).length) carregarHistorico(); else pintarHistorico(); }
+  }
+}
+
+function enfileirar(acao, dados) {
+  const fila = store.get('fila', []);
+  fila.push({ acao, dados, cred: store.get('sessao') }); // envia com o usuário que registrou
+  store.set('fila', fila);
+  pintarSync();
+  enviarFila();
+}
+
+function pintarSync() {
+  const n = store.get('fila', []).length, el = $('sync');
+  el.classList.remove('pendente', 'offline');
+  if (!navigator.onLine) { el.classList.add('offline'); el.textContent = n ? `Sem internet, ${n} aguardando` : 'Sem internet'; }
+  else if (n) { el.classList.add('pendente'); el.textContent = n === 1 ? '1 registro enviando' : `${n} registros enviando`; }
+  else el.textContent = 'Tudo enviado';
+}
+
+/* =========================================================
+   Meus registros — lista vinda da planilha, com cópia guardada no celular.
+   Tocar num card abre o detalhe para completar KM real, gastos e observação.
+   ========================================================= */
+let abaAtual = 'registrar', carregandoHist = false, detalheAtual = null;
+
+function el(tag, cls, txt) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt != null) e.textContent = txt;
+  return e;
+}
+const fmtData = iso => new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const vazio = v => v === '' || v == null;
+const fmtNum = v => (vazio(v) ? '' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 }));
+const fmtReal = v => (vazio(v) ? '' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const fmtTempo = m => (vazio(m) ? '' : Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0'));
+const linkMapa = gps => 'https://www.google.com/maps?q=' + encodeURIComponent(String(gps).replace(/\s/g, ''));
+
+// Dia no fuso do celular, para separar "Hoje" do "Histórico".
+const diaLocal = iso => { const d = new Date(iso); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+
+function trocarAba(aba) {
+  abaAtual = aba;
+  document.querySelectorAll('.abas button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.aba === aba)));
+  $('abaRegistrar').classList.toggle('hidden', aba !== 'registrar');
+  $('abaHistorico').classList.toggle('hidden', aba === 'registrar');
+  $('barraAcao').classList.toggle('hidden', aba !== 'registrar' || !store.get('sessao'));
+  window.scrollTo(0, 0);
+  if (aba !== 'registrar') { pintarHistorico(); carregarHistorico(); }
+}
+
+async function carregarHistorico() {
+  if (carregandoHist) return;
+  if (!navigator.onLine) { pintarHistorico('Sem internet. Mostrando a última lista salva neste celular.'); return; }
+  carregandoHist = true;
+  $('btnAtualizar').disabled = true;
+  pintarHistorico(null, true);
+  try {
+    const r = await chamar('listar');
+    if (r.ok) { store.set('histCache', { quando: new Date().toISOString(), dias: r.dias, itens: r.registros }); pintarHistorico(); }
+    else pintarHistorico(r.erro);
+  } catch {
+    pintarHistorico('Não foi possível atualizar agora. Mostrando a última lista salva.');
+  } finally {
+    carregandoHist = false;
+    $('btnAtualizar').disabled = false;
+  }
+}
+
+// Junta o que veio da planilha com as alterações que ainda estão na fila do celular.
+function registrosComPendentes() {
+  const cache = store.get('histCache');
+  if (!cache) return null;
+  const fila = store.get('fila', []);
+  const pend = {};
+  fila.forEach(f => {
+    if (f.acao !== 'editar' && f.acao !== 'observacao') return;
+    const p = (pend[f.dados.idCheckin] ||= { campos: {}, textos: [] });
+    Object.assign(p.campos, f.dados.campos || {});
+    if (f.dados.texto) p.textos.push(f.dados.texto);
+  });
+  return cache.itens.map(r => {
+    const p = pend[r.id];
+    if (!p) return r;
+    const c = p.campos, x = { ...r, pendente: true };
+    if ('Cliente' in c) x.cliente = c.Cliente;
+    if ('KM_Real' in c) x.kmReal = c.KM_Real;
+    if ('Pedagio' in c) x.pedagio = c.Pedagio;
+    if ('Estacionamento' in c) x.estacionamento = c.Estacionamento;
+    if (p.textos.length) x.observacoes = (r.observacoes ? r.observacoes + '\n' : '') + p.textos.map(t => t + ' (aguardando envio)').join('\n');
+    return x;
+  });
+}
+
+function pintarHistorico(aviso, carregando) {
+  const cache = store.get('histCache'), fila = store.get('fila', []);
+  const naoEnviados = fila.filter(f => f.acao === 'checkin' || f.acao === 'checkout').length;
+  const avisos = [];
+  if (aviso) avisos.push(aviso);
+  if (naoEnviados) avisos.push(naoEnviados === 1
+    ? '1 registro ainda não chegou à planilha. Ele aparece aqui depois de enviado.'
+    : `${naoEnviados} registros ainda não chegaram à planilha. Eles aparecem aqui depois de enviados.`);
+  $('msgHist').textContent = avisos.join(' ');
+  $('msgHist').classList.toggle('hidden', !avisos.length);
+  const hoje = abaAtual === 'hoje';
+  const atualizado = cache ? ` Atualizado às ${fmtHora(cache.quando)}.` : '';
+  $('histInfo').textContent = carregando ? 'Atualizando…'
+    : !cache ? ''
+    : hoje ? `Hoje, ${fmtData(new Date().toISOString())}.` + atualizado
+    : `Dias anteriores (até ${cache.dias} dias).` + atualizado;
+
+  const lista = $('cards'), todos = registrosComPendentes();
+  if (!todos) { lista.replaceChildren(); return; }
+  const chaveHoje = diaLocal(new Date().toISOString());
+  const itens = todos.filter(r => (diaLocal(r.checkinHora) === chaveHoje) === hoje);
+  if (!itens.length) {
+    lista.replaceChildren(el('p', 'vazio', hoje ? 'Nenhum registro hoje ainda.' : `Nenhum registro nos ${cache.dias} dias anteriores.`));
+  } else if (hoje) {
+    lista.replaceChildren(...itens.map(montarCard));
+  } else {
+    // Histórico agrupado por dia, do mais recente para o mais antigo
+    const partes = [];
+    let diaAtual = null;
+    itens.forEach(r => {
+      const d = diaLocal(r.checkinHora);
+      if (d !== diaAtual) {
+        diaAtual = d;
+        const qtd = itens.filter(x => diaLocal(x.checkinHora) === d).length;
+        const titulo = fmtData(r.checkinHora);
+        partes.push(el('h3', 'dia', titulo.charAt(0).toUpperCase() + titulo.slice(1) + (qtd > 1 ? `, ${qtd} registros` : ', 1 registro')));
+      }
+      partes.push(montarCard(r));
+    });
+    lista.replaceChildren(...partes);
+  }
+  // Se o detalhe estiver aberto, atualiza o que ele mostra (sem mexer no que está sendo digitado).
+  if (detalheAtual) { const novo = itens.find(r => r.id === detalheAtual.id); if (novo) pintarInfoDetalhe(novo); }
+}
+
+function montarCard(r) {
+  const aberto = r.status !== 'Checkout';
+  const card = el('article', 'card clicavel' + (aberto ? ' aberto' : ''));
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', 'Abrir registro ' + (r.cliente || ''));
+
+  const topo = el('div', 'card-topo');
+  topo.append(el('strong', null, r.cliente || 'Cliente não informado'), el('span', 'selo', aberto ? 'Em aberto' : 'Concluído'));
+  const quando = fmtData(r.checkinHora) + ', ' + fmtHora(r.checkinHora) + (r.checkoutHora ? ' até ' + fmtHora(r.checkoutHora) : '');
+  card.append(topo, el('p', 'quando', quando));
+
+
+  const rodape = el('div', 'card-rodape');
+  if (r.pendente) rodape.append(el('span', 'tag', 'Alterações aguardando envio'));
+  else if (!aberto && vazio(r.kmReal) && r.editavel) rodape.append(el('span', 'tag alerta', 'Falta o KM real'));
+  else rodape.append(el('span'));
+  rodape.append(el('span', 'abrir', r.editavel ? 'Abrir e editar ›' : 'Ver ›'));
+  card.append(rodape);
+
+  card.addEventListener('click', () => abrirDetalhe(r));
+  card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirDetalhe(r); } });
+  return card;
+}
+
+/* ---------- Detalhe do registro (tela cheia) ---------- */
+function pintarInfoDetalhe(r) {
+  detalheAtual = r;
+  const aberto = r.status !== 'Checkout';
+  $('detTitulo').textContent = r.cliente || 'Cliente não informado';
+  $('detQuando').textContent = (aberto ? 'Em aberto, ' : 'Concluído, ') + fmtData(r.checkinHora) + ', ' + fmtHora(r.checkinHora)
+    + (r.checkoutHora ? ' até ' + fmtHora(r.checkoutHora) : '');
+  const dl = $('detInfo');
+  dl.replaceChildren();
+  const linha = (rotulo, valor, href) => {
+    if (vazio(valor)) return;
+    const dd = el('dd');
+    if (href) { const a = el('a', null, valor); a.href = href; a.target = '_blank'; a.rel = 'noopener'; dd.append(a); }
+    else dd.textContent = String(valor);
+    dl.append(el('dt', null, rotulo), dd);
+  };
+  linha('Tempo total', fmtTempo(r.tempoMin));
+  linha('KM do painel na saída', fmtNum(r.kmInicial));
+  linha('KM ideal (calculado)', vazio(r.kmIdeal) ? '' : fmtNum(r.kmIdeal) + ' km');
+  linha('Observações', r.observacoes);
+}
+
+function abrirDetalhe(r) {
+  const dlg = $('detalhe');
+  pintarInfoDetalhe(r);
+  $('detMsg').classList.add('hidden');
+  const podeEditar = !!r.editavel;
+  $('detForm').classList.toggle('hidden', !podeEditar);
+  $('detSalvar').classList.toggle('hidden', !podeEditar);
+  $('detPrazo').classList.toggle('hidden', podeEditar);
+  montarFormulario(CAMPOS_EDICAO, $('detForm'), { Cliente: r.cliente, KM_Real: r.kmReal, Pedagio: r.pedagio, Estacionamento: r.estacionamento });
+  dlg.showModal();
+  dlg.scrollTop = 0;
+  // O botão "voltar" do Android fecha o detalhe em vez de sair do app.
+  history.pushState({ detalhe: true }, '');
+}
+
+function fecharDetalhe() {
+  const dlg = $('detalhe');
+  if (!dlg.open) return;
+  dlg.close();
+  detalheAtual = null;
+  if (history.state && history.state.detalhe) history.back();
+}
+
+function salvarDetalhe() {
+  const r = detalheAtual;
+  if (!r) return;
+  const msg = $('detMsg');
+  let v;
+  try { v = lerCampos(CAMPOS_EDICAO, $('detForm')); }
+  catch (e) { msg.className = 'msg aviso'; msg.textContent = e.message; return; }
+
+  const campos = {};
+  const igual = (a, b) => (vazio(a) && vazio(b)) || Number(a) === Number(b);
+  if (!igual(v.KM_Real, r.kmReal)) campos.KM_Real = v.KM_Real;
+  if (!igual(v.Pedagio, r.pedagio)) campos.Pedagio = v.Pedagio;
+  if (!igual(v.Estacionamento, r.estacionamento)) campos.Estacionamento = v.Estacionamento;
+  if (String(v.Cliente || '').trim() !== String(r.cliente || '').trim()) campos.Cliente = String(v.Cliente).trim();
+  const texto = String(v.NovaObs || '').trim();
+
+  if (!Object.keys(campos).length && !texto) { fecharDetalhe(); return; }
+  if (campos.Cliente) {
+    const ab = store.get('aberto');
+    if (ab && ab.id === r.id) { store.set('aberto', { ...ab, cliente: campos.Cliente }); render(); }
+  }
+  enfileirar('editar', { id: novoId(), idCheckin: r.id, campos, texto, hora: new Date().toISOString() });
+  fecharDetalhe();
+  pintarHistorico();
+}
+
+/* =========================================================
+   Tela
+   ========================================================= */
+function montarFormulario(lista, f = $('formDados'), valores = {}) {
+  f.replaceChildren(...lista.map(c => {
+    const label = document.createElement('label');
+    label.append(c.rotulo);
+    if (c.dica) { const s = document.createElement('small'); s.textContent = c.dica; label.append(' ', s); }
+    const el = document.createElement(c.tipo === 'textarea' ? 'textarea' : 'input');
+    el.name = c.nome;
+    if (c.tipo === 'number') { el.type = 'number'; el.inputMode = 'decimal'; el.min = '0'; el.step = 'any'; }
+    else if (c.tipo === 'dinheiro') { el.type = 'text'; el.inputMode = 'decimal'; el.placeholder = '0,00'; }
+    else if (c.tipo !== 'textarea') { el.type = 'text'; el.autocapitalize = 'sentences'; }
+    if (c.obrigatorio) el.required = true;
+    const val = valores[c.nome];
+    if (val !== undefined && val !== null && val !== '') {
+      el.value = c.tipo === 'dinheiro' ? Number(val).toFixed(2).replace('.', ',') : String(val);
+    }
+    label.append(el);
+    return label;
+  }));
+}
+
+function render() {
+  const sessao = store.get('sessao');
+  $('login').classList.toggle('hidden', !!sessao);
+  $('app').classList.toggle('hidden', !sessao);
+  $('barraAcao').classList.toggle('hidden', !sessao || abaAtual !== 'registrar');
+  if (!sessao) return;
+
+  $('nomeVendedor').textContent = sessao.nome;
+  const aberto = store.get('aberto');
+  const est = $('estado'), btn = $('btnAcao');
+  if (aberto) {
+    est.classList.add('aberto');
+    $('estadoTitulo').innerHTML = 'Check-in aberto desde <span class="relogio"></span>';
+    $('estadoTitulo').querySelector('.relogio').textContent = fmtDiaHora(aberto.hora);
+    $('estadoDetalhe').textContent = aberto.cliente || 'Faça o check-out ao terminar.';
+    $('btnEditarCliente').classList.remove('hidden');
+    btn.textContent = 'Fazer check-out';
+    btn.classList.add('saida');
+    montarFormulario(CAMPOS.checkout);
+  } else {
+    est.classList.remove('aberto');
+    $('estadoTitulo').textContent = 'Nenhum check-in aberto';
+    $('estadoDetalhe').textContent = 'Preencha os dados e faça o check-in ao chegar.';
+    $('btnEditarCliente').classList.add('hidden');
+    btn.textContent = 'Fazer check-in';
+    btn.classList.remove('saida');
+    montarFormulario(CAMPOS.checkin);
+  }
+  pintarSync();
+}
+
+function mostrarMsg(tipo, texto) {
+  const m = $('msgApp');
+  if (!texto) { m.classList.add('hidden'); return; }
+  m.className = 'msg ' + tipo; m.textContent = texto;
+}
+
+function lerCampos(lista, f = $('formDados')) {
+  const out = {};
+  for (const c of lista) {
+    const el = f.elements[c.nome];
+    let v = el.value.trim();
+    if (c.obrigatorio && !v) { el.focus(); throw new Error('Preencha "' + c.rotulo + '".'); }
+    if ((c.tipo === 'number' || c.tipo === 'dinheiro') && v !== '') {
+      let t = v.replace(/R\$|\s/g, '');
+      if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.'); // 1.234,56 -> 1234.56
+      v = Number(t);
+      if (!isFinite(v) || v < 0) { el.focus(); throw new Error('"' + c.rotulo + '" precisa ser um número.'); }
+      if (c.tipo === 'dinheiro') v = Math.round(v * 100) / 100;
+    }
+    out[c.nome] = v;
+  }
+  return out;
+}
+
+/* =========================================================
+   Ações
+   ========================================================= */
+async function acaoPrincipal() {
+  const btn = $('btnAcao'), aberto = store.get('aberto');
+  const tipo = aberto ? 'checkout' : 'checkin';
+  mostrarMsg();
+
+  let campos;
+  try { campos = lerCampos(CAMPOS[tipo]); }
+  catch (e) { mostrarMsg('aviso', e.message); return; }
+
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Lendo localização…';
+  const textoLendo = seg => { btn.textContent = `Lendo localização… ${seg} s`; };
+  pintarGPS('lendo');
+
+  let pos;
+  try {
+    pos = await lerGPS(prec => pintarGPS('lendo', prec), textoLendo);
+  } catch (e) {
+    pintarGPS('espera'); mostrarMsg('erro', e.message);
+    btn.disabled = false; btn.textContent = textoOriginal;
+    return;
+  }
+  const prec = pos.coords.accuracy;
+  pintarGPS('pronto', prec);
+  btn.textContent = textoOriginal;
+
+  if (prec > GPS_MAX_M) {
+    mostrarMsg('erro', `Não registrado: a localização ficou em ± ${Math.round(prec)} m e o mínimo é ± ${GPS_MAX_M} m. Vá para perto de uma janela ou para fora e toque de novo.`);
+    btn.disabled = false; btn.textContent = textoOriginal;
+    return;
+  }
+
+  const hora = new Date().toISOString();
+  const gps = {
+    lat: pos.coords.latitude, lng: pos.coords.longitude, precisao: prec,
+    hora: new Date(pos.timestamp).toISOString(),  // momento exato da leitura do GPS
+    leituras: pos.leituras,
+  };
+
+  if (tipo === 'checkin') {
+    const id = novoId();
+    enfileirar('checkin', { id, hora, gps, campos });
+    store.set('aberto', { id, hora, cliente: campos.Cliente || '', kmInicial: typeof campos.KM_Inicial === 'number' ? campos.KM_Inicial : null });
+  } else {
+    const id = novoId();
+    enfileirar('checkout', { id, idCheckin: aberto.id, hora, gps, campos });
+    store.del('aberto');
+  }
+
+  btn.disabled = false;
+  render();
+  if (!navigator.onLine) mostrarMsg('aviso', 'Registrado no celular. Vai para a planilha assim que tiver internet.');
+}
+
+async function sincronizarEstado() {
+  // Só confia no servidor quando não há nada local esperando envio.
+  if (!navigator.onLine || store.get('fila', []).length) return;
+  try {
+    const r = await chamar('status');
+    if (r.ok) {
+      const local = store.get('aberto');
+      if (r.aberto) store.set('aberto', { ...r.aberto, kmInicial: local?.id === r.aberto.id ? local.kmInicial : null });
+      else store.del('aberto');
+      render();
+    } else if (r.auth === false) {
+      mostrarMsg('erro', 'Seu PIN não é mais aceito. Toque em "Trocar usuário" e entre de novo.');
+    }
+  } catch {}
+}
+
+$('formLogin').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const f = ev.target, msg = $('msgLogin'), btn = f.querySelector('button');
+  const nome = f.nome.value.trim(), pin = f.pin.value.trim();
+  msg.classList.add('hidden');
+  if (!nome || !pin) { msg.textContent = 'Preencha nome e PIN.'; msg.classList.remove('hidden'); return; }
+  btn.disabled = true; btn.textContent = 'Conferindo…';
+  store.set('sessao', { nome, pin });
+  try {
+    const r = await chamar('login');
+    if (!r.ok) throw new Error(r.erro);
+    store.set('sessao', { nome: r.vendedor, pin });
+    render(); aquecerGPS(); sincronizarEstado();
+  } catch (e) {
+    store.del('sessao');
+    msg.textContent = e.message.startsWith('HTTP') || e.name === 'TypeError'
+      ? 'Não foi possível falar com a planilha. Confira a internet e tente de novo.' : e.message;
+    msg.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+});
+
+$('btnAcao').addEventListener('click', acaoPrincipal);
+document.querySelectorAll('.abas button').forEach(b => b.addEventListener('click', () => trocarAba(b.dataset.aba)));
+$('btnAtualizar').addEventListener('click', carregarHistorico);
+$('detFechar').addEventListener('click', fecharDetalhe);
+$('detSalvar').addEventListener('click', salvarDetalhe);
+$('btnEditarCliente').addEventListener('click', () => {
+  const ab = store.get('aberto');
+  if (!ab) return;
+  const doCache = (registrosComPendentes() || []).find(r => r.id === ab.id);
+  abrirDetalhe(doCache || { id: ab.id, cliente: ab.cliente, status: 'Checkin', checkinHora: ab.hora, kmInicial: ab.kmInicial, editavel: true });
+});
+$('detalhe').addEventListener('cancel', e => { e.preventDefault(); fecharDetalhe(); });
+window.addEventListener('popstate', () => { const d = $('detalhe'); if (d.open) { d.close(); detalheAtual = null; } });
+$('btnSair').addEventListener('click', () => {
+  const n = store.get('fila', []).length;
+  if (n && !confirm(`Ainda há ${n} registro(s) não enviados. Eles continuam guardados e serão enviados no nome de quem registrou. Trocar mesmo assim?`)) return;
+  esfriarGPS(); store.del('sessao'); store.del('aberto'); store.del('histCache'); trocarAba('registrar');
+  render();
+});
+
+window.addEventListener('online', () => { pintarSync(); enviarFila().then(sincronizarEstado); });
+window.addEventListener('offline', pintarSync);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { esfriarGPS(); return; }
+  aquecerGPS(); enviarFila().then(sincronizarEstado);
+});
+setInterval(() => { if (store.get('fila', []).length) enviarFila(); }, 30000);
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+render();
+if (store.get('sessao')) { aquecerGPS(); enviarFila().then(sincronizarEstado); }
+</script>
+</body>
+</html>
